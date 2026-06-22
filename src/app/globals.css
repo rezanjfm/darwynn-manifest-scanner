@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+    overscroll-behavior: none;
+  }
+
+  /* Prevent double-tap zoom on buttons */
+  button, a {
+    touch-action: manipulation;
+  }
+}
+
+/* Full-height layout that respects mobile safe areas */
+.safe-top    { padding-top:    env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
