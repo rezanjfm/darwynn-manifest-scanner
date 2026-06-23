@@ -59,6 +59,10 @@ export default function ScanPage() {
   // Tracks IDs deleted optimistically so the realtime DELETE event doesn't double-decrement
   const pendingDeletesRef = useRef<Set<string>>(new Set());
 
+  // Derived before hooks so the keyboard wedge effect can depend on it.
+  // False while loading (manifest is null), false when closed or a modal is open.
+  const scannerActive = !!manifest && manifest.status !== "closed" && !showManual && !showClose;
+
   // --- Load manifest, carriers, and parcel history ---
   useEffect(() => {
     async function load() {
@@ -248,6 +252,50 @@ export default function ScanPage() {
     }
   }, [supabase]);
 
+  // Stable ref to handleScan used by the keyboard wedge listener to avoid stale closures
+  const handleScanRef = useRef(handleScan);
+  useEffect(() => { handleScanRef.current = handleScan; }, [handleScan]);
+
+  // HID keyboard-wedge scanner support (USB/Bluetooth barcode guns and fixed counter scanners).
+  // Scanners emit rapid keystrokes ending in Enter (or just a burst with no terminator).
+  useEffect(() => {
+    if (!scannerActive) return;
+
+    const buf = { value: "" };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const flush = () => {
+      const val = buf.value.trim();
+      buf.value = "";
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (val.length >= 6) handleScanRef.current(val, "scan");
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when a form field has focus (manual entry modal, etc.)
+      const tag = (document.activeElement?.tagName ?? "").toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.key === "Enter" || e.key === "Tab") {
+        if (buf.value) { e.preventDefault(); flush(); }
+        return;
+      }
+
+      if (e.key.length !== 1) return; // skip modifier/arrow/fn keys
+
+      buf.value += e.key;
+      if (timer) clearTimeout(timer);
+      // 200 ms of silence means the scanner finished; handles guns that omit Enter
+      timer = setTimeout(flush, 200);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (timer) clearTimeout(timer);
+    };
+  }, [scannerActive]);
+
   // --- Close manifest ---
   async function closeManifest() {
     if (!manifest || !userId) return;
@@ -280,7 +328,6 @@ export default function ScanPage() {
   if (!manifest || !carrier) return null;
 
   const isClosed = manifest.status === "closed";
-  const scannerActive = !isClosed && !showManual && !showClose;
 
   return (
     <div className="h-screen flex flex-col bg-black overflow-hidden">
