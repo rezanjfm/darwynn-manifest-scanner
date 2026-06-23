@@ -58,8 +58,7 @@ export default function ScanPage() {
   // Tracks IDs deleted optimistically so the realtime DELETE event doesn't double-decrement
   const pendingDeletesRef = useRef<Set<string>>(new Set());
 
-  // False while loading, closed, or manual entry modal is open
-  const scannerActive = !!manifest && manifest.status !== "closed" && !showManual;
+  const scannerActive = !!manifest && !showManual;
 
   // --- Load manifest, carriers, and parcel history ---
   useEffect(() => {
@@ -180,7 +179,6 @@ export default function ScanPage() {
   // --- Handle a scan (from camera or manual entry) ---
   const handleScan = useCallback(async (rawBarcode: string, entryMethod: "scan" | "manual" = "scan") => {
     if (!manifest || !carrier || !userId) return;
-    if (manifest.status === "closed" && userRole === "associate") return;
 
     const tracking = extractTrackingNumber(rawBarcode);
 
@@ -294,18 +292,6 @@ export default function ScanPage() {
     };
   }, [scannerActive]);
 
-  // --- Close manifest ---
-  async function closeManifest() {
-    if (!manifest || !userId) return;
-    const { error } = await supabase
-      .from("manifests")
-      .update({ status: "closed", closed_by: userId, closed_at: new Date().toISOString() })
-      .eq("id", manifestId);
-    if (error) { alert(error.message); return; }
-    setManifest((m) => m ? { ...m, status: "closed" } : m);
-    router.push("/manifests");
-  }
-
   // --- Export CSV ---
   async function exportCSV() {
     if (!manifest || !carrier) return;
@@ -324,7 +310,6 @@ export default function ScanPage() {
 
   if (!manifest || !carrier) return null;
 
-  const isClosed = manifest.status === "closed";
   const isInbound = manifest.direction === "inbound";
 
   return (
@@ -350,11 +335,6 @@ export default function ScanPage() {
                 ↩ RETURN
               </span>
             )}
-            {isClosed && (
-              <span className="text-[10px] font-black px-2 py-0.5 rounded bg-gray-700/50 text-gray-400 flex-none">
-                CLOSED
-              </span>
-            )}
             {!isOnline && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-500/15 border border-yellow-500/20 text-yellow-400 flex-none">
                 OFFLINE
@@ -372,7 +352,7 @@ export default function ScanPage() {
         </div>
       </div>
 
-      {/* ── Camera — takes ALL remaining height ── */}
+      {/* ── Camera ── */}
       <div className="flex-1 relative overflow-hidden min-h-0 bg-black">
         <BarcodeScanner onScan={(v) => handleScan(v, "scan")} active={scannerActive} />
 
@@ -382,8 +362,7 @@ export default function ScanPage() {
           </div>
         )}
 
-        {/* Recent scans live feed */}
-        {!isClosed && scannedList.length > 0 && (
+        {scannedList.length > 0 && (
           <div className="absolute bottom-0 inset-x-0 z-20">
             <div className="bg-black/80 backdrop-blur-sm border-t border-white/5">
               {scannedList.slice(0, 4).map((p, i) => (
@@ -412,67 +391,25 @@ export default function ScanPage() {
             </div>
           </div>
         )}
-
-        {/* Closed overlay */}
-        {isClosed && (
-          <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-8 gap-5">
-            <div className="w-16 h-16 rounded-2xl bg-gray-800/80 border border-white/8 flex items-center justify-center text-3xl">
-              🔒
-            </div>
-            <div className="text-center">
-              <div className="text-white font-bold text-xl mb-1">Manifest Closed</div>
-              <div className="text-gray-500 text-sm">{manifest.parcel_count} parcels recorded</div>
-            </div>
-            <button
-              onClick={exportCSV}
-              className="w-full max-w-xs py-3.5 rounded-2xl font-bold text-sm text-white transition-all active:scale-[0.98]"
-              style={{ background: "linear-gradient(135deg, #00B2D8, #0093B8)" }}
-            >
-              Export CSV
-            </button>
-            {userRole !== "associate" && (
-              <button
-                onClick={async () => {
-                  await supabase.from("manifests")
-                    .update({ status: "open", closed_at: null, closed_by: null })
-                    .eq("id", manifestId);
-                  setManifest((m) => m ? { ...m, status: "open" } : m);
-                }}
-                className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
-              >
-                Reopen manifest
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* ── Bottom bar ── */}
-      {!isClosed && (
-        <div className={`flex-none px-4 py-3 safe-bottom flex gap-2 border-t ${
-          isInbound ? "bg-orange-950/80 border-orange-900/50" : "bg-gray-900/80 border-white/5"
-        } backdrop-blur-sm`}>
-          <button
-            onClick={() => setShowManual(true)}
-            className="flex-1 bg-white/8 border border-white/10 text-gray-300 py-3 rounded-xl font-semibold text-sm hover:bg-white/12 transition-colors active:scale-[0.97]"
-          >
-            ✎ Manual
-          </button>
-          <button
-            onClick={exportCSV}
-            className="bg-white/8 border border-white/10 text-gray-400 px-4 py-3 rounded-xl font-semibold text-sm hover:bg-white/12 transition-colors active:scale-[0.97]"
-          >
-            CSV
-          </button>
-          <button
-            onClick={closeManifest}
-            className="flex-1 py-3 rounded-xl font-bold text-sm text-white transition-all active:scale-[0.97]"
-            style={{ background: "linear-gradient(135deg, #dc2626, #b91c1c)" }}
-          >
-            Close
-          </button>
-        </div>
-      )}
+      <div className={`flex-none px-4 py-3 safe-bottom flex gap-2 border-t ${
+        isInbound ? "bg-orange-950/80 border-orange-900/50" : "bg-gray-900/80 border-white/5"
+      } backdrop-blur-sm`}>
+        <button
+          onClick={() => setShowManual(true)}
+          className="flex-1 bg-white/8 border border-white/10 text-gray-300 py-3 rounded-xl font-semibold text-sm hover:bg-white/12 transition-colors active:scale-[0.97]"
+        >
+          ✎ Manual
+        </button>
+        <button
+          onClick={exportCSV}
+          className="bg-white/8 border border-white/10 text-gray-400 px-4 py-3 rounded-xl font-semibold text-sm hover:bg-white/12 transition-colors active:scale-[0.97]"
+        >
+          CSV
+        </button>
+      </div>
 
       {showManual && (
         <ManualEntryModal

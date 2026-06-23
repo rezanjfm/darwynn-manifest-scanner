@@ -208,8 +208,7 @@ export default function ManifestsPage() {
                 </div>
                 <div className="space-y-2">
                   {group.items.map(m => {
-                    const isIn     = m.direction === "inbound";
-                    const isClosed = m.status === "closed";
+                    const isIn = m.direction === "inbound";
                     return (
                       <button
                         key={m.id}
@@ -218,7 +217,6 @@ export default function ManifestsPage() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            {/* Direction + carrier */}
                             <div className="flex items-center gap-2 mb-1">
                               <span className={`text-[10px] font-black px-2 py-0.5 rounded flex-none ${
                                 isIn ? "bg-orange-500/15 text-orange-400" : "bg-brand/15 text-brand"
@@ -227,20 +225,13 @@ export default function ManifestsPage() {
                               </span>
                               <span className="font-bold text-sm text-white truncate">{m.carrier.name}</span>
                             </div>
-                            {/* Meta row */}
                             <div className="text-gray-500 text-xs">
                               {m.opened_at && format(parseISO(m.opened_at), "h:mm a")}
-                              {isClosed && m.closed_at && <> → {format(parseISO(m.closed_at), "h:mm a")}</>}
                               {m.opener_name && <span className="text-gray-600"> · {m.opener_name}</span>}
                             </div>
                           </div>
-                          <div className="flex-none flex flex-col items-end gap-2">
-                            <div className={`text-2xl font-black tabular-nums leading-none ${isIn ? "text-orange-400" : "text-brand"}`}>
-                              {m.parcel_count}
-                            </div>
-                            {!isClosed && (
-                              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                            )}
+                          <div className={`flex-none text-2xl font-black tabular-nums leading-none ${isIn ? "text-orange-400" : "text-brand"}`}>
+                            {m.parcel_count}
                           </div>
                         </div>
                       </button>

@@ -167,8 +167,6 @@ export default function AdminPage() {
   const totalPackages = totalOut + totalIn;
   const manualCount   = useMemo(() => parcels.filter(p => p.entry_method === "manual").length, [parcels]);
   const manualRate    = totalPackages > 0 ? Math.round((manualCount / totalPackages) * 100) : 0;
-  const openManifests   = useMemo(() => manifests.filter(m => m.status === "open"),   [manifests]);
-  const closedManifests = useMemo(() => manifests.filter(m => m.status === "closed"), [manifests]);
   const hourlyData = useMemo(() => { const b = Array(24).fill(0) as number[]; parcels.forEach(p => { b[new Date(p.scanned_at).getHours()]++; }); return b; }, [parcels]);
   const peakCount  = Math.max(...hourlyData.slice(5, 23), 1);
   const carrierStats = useMemo((): CarrierStat[] => {
@@ -176,7 +174,6 @@ export default function AdminPage() {
     manifests.forEach(m => {
       if (!map[m.carrier_id]) map[m.carrier_id] = { id: m.carrier_id, name: m.carrier.name, code: m.carrier.code, outbound: 0, inbound: 0, manifests: 0, openManifests: 0 };
       map[m.carrier_id].manifests++;
-      if (m.status === "open") map[m.carrier_id].openManifests++;
       if (m.direction === "outbound") map[m.carrier_id].outbound += m.parcel_count;
       else                            map[m.carrier_id].inbound  += m.parcel_count;
     });
@@ -309,16 +306,14 @@ export default function AdminPage() {
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <KpiCard value={dashLoading ? "…" : totalPackages} label="Total Processed"  color="purple" sub={format(new Date(date + "T12:00:00"), "MMM d, yyyy")} />
-              <KpiCard value={dashLoading ? "…" : totalOut}      label="Outbound"         color="blue"   sub={`${closedManifests.filter(m => m.direction === "outbound").length} manifests closed`} />
-              <KpiCard value={dashLoading ? "…" : totalIn}       label="Returns In"       color="orange" sub={`${closedManifests.filter(m => m.direction === "inbound").length} manifests closed`} />
+              <KpiCard value={dashLoading ? "…" : totalOut}      label="Outbound"         color="blue"   />
+              <KpiCard value={dashLoading ? "…" : totalIn}       label="Returns In"       color="orange" />
               <KpiCard value={dashLoading ? "…" : `${manualRate}%`} label="Manual Entry Rate" color={manualRate > 15 ? "red" : manualRate > 5 ? "yellow" : "green"} sub={manualRate > 15 ? "High — check labels" : manualRate > 5 ? "Elevated" : "Good"} />
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { label: "Manifests",   value: manifests.length },
-                { label: "Open Now",    value: openManifests.length },
-                { label: "Closed",      value: closedManifests.length },
                 { label: "Carriers",    value: carrierStats.length },
                 { label: "Manual pkgs", value: manualCount },
                 { label: "Scan pkgs",   value: totalPackages - manualCount },
@@ -330,12 +325,11 @@ export default function AdminPage() {
               ))}
             </div>
 
-            {!dashLoading && openManifests.length > 0 && (
-              <Section title="Active Manifests" badge={openManifests.length} badgeColor="green">
+            {!dashLoading && manifests.length > 0 && (
+              <Section title="Today's Sessions" badge={manifests.length}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {openManifests.map(m => {
+                  {manifests.map(m => {
                     const isIn = m.direction === "inbound";
-                    const elapsed = m.opened_at ? Math.round((Date.now() - new Date(m.opened_at).getTime()) / 60000) : 0;
                     return (
                       <button key={m.id} onClick={() => router.push(`/scan/${m.id}`)}
                         className={`text-left rounded-xl border p-4 flex items-center gap-4 hover:brightness-110 transition-all ${
@@ -347,13 +341,12 @@ export default function AdminPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="font-semibold text-sm truncate">{m.carrier.name}</div>
-                          <div className="text-xs text-gray-400">{elapsed < 60 ? `${elapsed}m elapsed` : `${(elapsed / 60).toFixed(1)}h elapsed`}</div>
+                          <div className="text-xs text-gray-500">{m.opened_at ? format(new Date(m.opened_at), "h:mm a") : "—"}</div>
                         </div>
                         <div className="text-right flex-none">
                           <div className="text-2xl font-black">{m.parcel_count}</div>
                           <div className="text-xs text-gray-500">pkgs</div>
                         </div>
-                        <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-none" />
                       </button>
                     );
                   })}
@@ -398,11 +391,6 @@ export default function AdminPage() {
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold">{c.name}</span>
-                            {c.openManifests > 0 && (
-                              <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 rounded-full animate-pulse">
-                                {c.openManifests} open
-                              </span>
-                            )}
                           </div>
                           <span className="text-sm font-bold">{total} pkgs</span>
                         </div>
@@ -617,10 +605,7 @@ export default function AdminPage() {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-base">{c.name}</span>
-                              {c.openManifests > 0 && (
-                                <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full animate-pulse">{c.openManifests} OPEN</span>
-                              )}
-                            </div>
+                              </div>
                             <div className="text-xs text-gray-500 mt-0.5">{mfForCarrier.length} manifest{mfForCarrier.length !== 1 ? "s" : ""} · {share}% of day</div>
                           </div>
                           <div className="text-right">
@@ -654,17 +639,14 @@ export default function AdminPage() {
                           {mfForCarrier.map(m => (
                             <button key={m.id} onClick={() => router.push(`/scan/${m.id}`)}
                               className={`text-left rounded-lg px-3 py-2 text-xs border transition-colors ${
-                                m.status === "open"
-                                  ? m.direction === "inbound" ? "bg-orange-950/60 border-orange-800/40 hover:border-orange-600" : "bg-blue-950/60 border-blue-800/40 hover:border-blue-600"
-                                  : "bg-gray-800/40 border-gray-700/40 hover:border-gray-600"
+                                m.direction === "inbound"
+                                  ? "bg-orange-950/60 border-orange-800/40 hover:border-orange-600"
+                                  : "bg-blue-950/60 border-blue-800/40 hover:border-blue-600"
                               }`}
                             >
-                              <div className="flex items-center justify-between">
-                                <span className={m.status === "open" ? "font-semibold" : "text-gray-500"}>{m.direction === "inbound" ? "↩ Return" : "↑ Outbound"}</span>
-                                {m.status === "open" && <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />}
-                              </div>
-                              <div className={`font-bold mt-0.5 ${m.status === "open" ? "text-white" : "text-gray-500"}`}>{m.parcel_count} pkgs</div>
-                              <div className="text-gray-600 mt-0.5">{m.opened_at ? format(new Date(m.opened_at), "h:mm a") : "—"}</div>
+                              <div className="font-semibold">{m.direction === "inbound" ? "↩ Return" : "↑ Outbound"}</div>
+                              <div className="font-bold mt-0.5 text-white">{m.parcel_count} pkgs</div>
+                              <div className="text-gray-500 mt-0.5">{m.opened_at ? format(new Date(m.opened_at), "h:mm a") : "—"}</div>
                             </button>
                           ))}
                         </div>
