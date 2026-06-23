@@ -82,6 +82,12 @@ INSERT INTO carriers (name, code, tracking_patterns, logo_keywords, active) VALU
   ARRAY['ALS','ALS Logistics','Action Logistics'],
   true),
 
+-- ICS Courier — observed format: 2 uppercase letters + 18 alphanumeric (e.g. ND6GU1V3MCDQDLK0E1X0)
+('ICS Courier',      'ICS',
+  ARRAY['^[A-Z]{2}[A-Z0-9]{14,22}$'],
+  ARRAY['ICS','ICS Courier'],
+  true),
+
 -- Catch-all — receives any barcode whose carrier cannot be auto-detected.
 -- Never needs manual selection; always active.
 ('Other / Unknown',  'OTHER',

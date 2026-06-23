@@ -239,11 +239,11 @@ function QuickScanInner() {
         return;
       }
 
-      // Carrier not detected from barcode pattern
-      // Priority: active carrier (mid-run) → Other catch-all → nothing (shouldn't happen)
-      const fallback = activeCarrier ?? otherCarrier;
-      if (fallback) {
-        await saveScan(rawBarcode, fallback.id, fallback.name, entryMethod, direction);
+      // Carrier not detected — always go to Other/Unknown, never assume active carrier.
+      // Falling back to the active carrier caused misattribution when packages from
+      // a different carrier were mixed in.
+      if (otherCarrier) {
+        await saveScan(rawBarcode, otherCarrier.id, otherCarrier.name, entryMethod, direction);
       }
     },
     [carriers, activeCarrier, otherCarrier, direction, saveScan]
