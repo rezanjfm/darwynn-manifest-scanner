@@ -11,8 +11,8 @@ INSERT INTO carriers (name, code, tracking_patterns, logo_keywords, active) VALU
   true),
 
 ('Obibox',          'OBIBOX',
-  -- Real-world format observed: XPDAR + 14 digits (e.g. XPDAR81453582721601)
-  ARRAY['^XPDAR[0-9]{10,18}$', '^OB[0-9]{8,14}$', '^OBX[0-9]{6,12}$'],
+  -- Real-world formats: XPDAR + alphanumeric suffix (e.g. XPDAR81453582721601, XPDAR343195406050Q1)
+  ARRAY['^XPDAR[A-Z0-9]{10,20}$', '^OB[0-9]{8,14}$', '^OBX[0-9]{6,12}$'],
   ARRAY['Obibox'],
   true),
 
