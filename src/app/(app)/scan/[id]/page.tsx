@@ -328,57 +328,90 @@ export default function ScanPage() {
   if (!manifest || !carrier) return null;
 
   const isClosed = manifest.status === "closed";
+  const isInbound = manifest.direction === "inbound";
+  // Status badges shown in top bar — only non-empty entries render
+  const statusBadges = [
+    isInbound  && { label: "↩ RETURN",       cls: "bg-orange-500 text-white" },
+    !isOnline  && { label: "OFFLINE",         cls: "bg-yellow-600 text-yellow-100" },
+    syncing    && { label: "Syncing…",        cls: "bg-blue-700 text-blue-100" },
+    isClosed   && { label: "CLOSED",          cls: "bg-gray-600 text-gray-300" },
+  ].filter(Boolean) as { label: string; cls: string }[];
 
   return (
     <div className="h-screen flex flex-col bg-black overflow-hidden">
-      {/* Top bar */}
-      <div className="flex-none bg-gray-900 text-white px-4 py-3 safe-top">
-        <div className="flex items-center justify-between gap-2">
+
+      {/* ── Top bar — single compact row ── */}
+      <div className={`flex-none text-white px-3 py-2 safe-top ${isInbound ? "bg-orange-900" : "bg-gray-900"}`}>
+        <div className="flex items-center gap-2">
           <button
             onClick={() => router.push("/manifests")}
-            className="text-gray-400 text-2xl leading-none p-1"
+            className="text-gray-400 text-xl leading-none p-1 flex-none"
+            aria-label="Back"
           >
             ←
           </button>
-          <div className="flex-1 text-center">
-            <div className="font-bold text-lg leading-tight">{carrier.name}</div>
-            <div className="text-gray-400 text-xs">{format(new Date(manifest.date), "MMM d, yyyy")}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-green-400">{manifest.parcel_count}</div>
-            <div className="text-gray-400 text-xs">parcels</div>
-          </div>
-        </div>
 
-        {/* Status indicators */}
-        <div className="flex items-center gap-2 mt-2">
-          {manifest.direction === "inbound" && (
-            <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full font-semibold">
-              ↩ INBOUND RETURN
+          <div className="flex-1 flex items-center gap-2 min-w-0">
+            <span className="font-bold text-base leading-tight truncate">{carrier.name}</span>
+            {statusBadges.map((b) => (
+              <span key={b.label} className={`text-xs px-1.5 py-0.5 rounded font-semibold flex-none ${b.cls}`}>
+                {b.label}
+              </span>
+            ))}
+          </div>
+
+          {/* Parcel count — the number workers watch most */}
+          <div className="flex-none text-right">
+            <span className={`text-3xl font-black tabular-nums leading-none ${isInbound ? "text-orange-300" : "text-green-400"}`}>
+              {manifest.parcel_count}
             </span>
-          )}
-          {!isOnline && (
-            <span className="bg-yellow-600 text-yellow-100 text-xs px-2 py-0.5 rounded-full font-semibold">
-              OFFLINE — queuing scans
-            </span>
-          )}
-          {syncing && (
-            <span className="bg-blue-700 text-blue-100 text-xs px-2 py-0.5 rounded-full">
-              Syncing…
-            </span>
-          )}
-          {isClosed && (
-            <span className="bg-gray-700 text-gray-300 text-xs px-2 py-0.5 rounded-full font-semibold">
-              MANIFEST CLOSED
-            </span>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Camera or closed overlay */}
+      {/* ── Camera — takes ALL remaining height ── */}
       <div className="flex-1 relative overflow-hidden min-h-0">
         <BarcodeScanner onScan={(v) => handleScan(v, "scan")} active={scannerActive} />
 
+        {/* Feedback strip — absolute at top of camera, 600 ms for success */}
+        {feedback && (
+          <div className="absolute top-0 inset-x-0 z-30">
+            <ScanFeedback feedback={feedback} onDismiss={() => setFeedback(null)} />
+          </div>
+        )}
+
+        {/* Recent scans overlay — bottom of camera, semi-transparent, max 4 rows */}
+        {!isClosed && scannedList.length > 0 && (
+          <div className="absolute bottom-0 inset-x-0 z-20 bg-black/75 backdrop-blur-sm">
+            {scannedList.slice(0, 4).map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-2 px-3 py-1.5 border-t border-white/10 first:border-0"
+              >
+                <span
+                  className={`w-4 h-4 flex-none flex items-center justify-center text-[10px] rounded font-bold ${
+                    p.entry_method === "manual" ? "bg-yellow-700 text-yellow-200" : "bg-green-800 text-green-300"
+                  }`}
+                >
+                  {p.entry_method === "manual" ? "M" : "S"}
+                </span>
+                <span className="font-mono text-xs text-white flex-1 truncate">{p.tracking_number}</span>
+                <span className="text-gray-400 text-xs flex-none">{timeAgo(p.scanned_at)}</span>
+                {userRole !== "worker" && (
+                  <button
+                    onClick={() => voidScan(p.id, p.tracking_number)}
+                    className="text-red-400 text-[11px] flex-none px-1 py-0.5 rounded active:bg-red-900/50"
+                    aria-label="Remove scan"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Closed-manifest overlay */}
         {isClosed && (
           <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-white p-6 gap-4">
             <div className="text-5xl">🔒</div>
@@ -393,7 +426,9 @@ export default function ScanPage() {
             {userRole !== "worker" && (
               <button
                 onClick={async () => {
-                  await supabase.from("manifests").update({ status: "open", closed_at: null, closed_by: null }).eq("id", manifestId);
+                  await supabase.from("manifests")
+                    .update({ status: "open", closed_at: null, closed_by: null })
+                    .eq("id", manifestId);
                   setManifest((m) => m ? { ...m, status: "open" } : m);
                 }}
                 className="text-yellow-400 underline text-sm"
@@ -405,60 +440,29 @@ export default function ScanPage() {
         )}
       </div>
 
-      {/* Recent scans panel */}
-      {!isClosed && scannedList.length > 0 && (
-        <div className="flex-none bg-gray-900 border-t border-gray-800 overflow-y-auto" style={{ maxHeight: "9rem" }}>
-          {scannedList.slice(0, 20).map((p) => (
-            <div key={p.id} className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 last:border-0">
-              <span
-                className={`w-5 h-5 flex-none flex items-center justify-center text-xs rounded font-bold ${
-                  p.entry_method === "manual" ? "bg-yellow-700 text-yellow-200" : "bg-green-800 text-green-300"
-                }`}
-              >
-                {p.entry_method === "manual" ? "M" : "S"}
-              </span>
-              <span className="font-mono text-sm text-white flex-1 truncate">{p.tracking_number}</span>
-              <span className="text-gray-500 text-xs flex-none">{timeAgo(p.scanned_at)}</span>
-              {userRole !== "worker" && (
-                <button
-                  onClick={() => voidScan(p.id, p.tracking_number)}
-                  className="text-red-400 text-xs flex-none px-1.5 py-0.5 rounded hover:bg-red-900/50 transition-colors"
-                  aria-label="Remove scan"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Bottom action bar */}
+      {/* ── Bottom action bar — slim ── */}
       {!isClosed && (
-        <div className="flex-none bg-gray-900 px-4 py-3 safe-bottom flex gap-3">
+        <div className={`flex-none px-3 py-2 safe-bottom flex gap-2 ${isInbound ? "bg-orange-950" : "bg-gray-900"}`}>
           <button
             onClick={() => setShowManual(true)}
-            className="flex-1 bg-gray-700 text-white py-4 rounded-xl font-semibold text-sm"
+            className="flex-1 bg-gray-700 text-white py-3 rounded-xl font-semibold text-sm"
           >
-            ✎ Manual Entry
+            ✎ Manual
           </button>
           <button
             onClick={exportCSV}
-            className="bg-gray-700 text-white px-4 py-4 rounded-xl font-semibold text-sm"
+            className="bg-gray-700 text-white px-3 py-3 rounded-xl font-semibold text-sm"
           >
             CSV
           </button>
           <button
             onClick={() => setShowClose(true)}
-            className="flex-1 bg-red-700 text-white py-4 rounded-xl font-bold text-sm"
+            className="flex-1 bg-red-800 text-white py-3 rounded-xl font-bold text-sm"
           >
-            Close Manifest
+            Close
           </button>
         </div>
       )}
-
-      {/* Feedback overlay */}
-      <ScanFeedback feedback={feedback} onDismiss={() => setFeedback(null)} />
 
       {/* Manual entry modal */}
       {showManual && (

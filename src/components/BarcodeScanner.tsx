@@ -97,15 +97,33 @@ export default function BarcodeScanner({ onScan, active }: BarcodeScannerProps) 
         className="absolute inset-0 w-full h-full object-cover"
         muted playsInline autoPlay
       />
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-72 h-40 border-2 border-white rounded-lg opacity-60 relative">
-          <span className="absolute -top-0.5 -left-0.5 w-6 h-6 border-t-4 border-l-4 border-green-400 rounded-tl" />
-          <span className="absolute -top-0.5 -right-0.5 w-6 h-6 border-t-4 border-r-4 border-green-400 rounded-tr" />
-          <span className="absolute -bottom-0.5 -left-0.5 w-6 h-6 border-b-4 border-l-4 border-green-400 rounded-bl" />
-          <span className="absolute -bottom-0.5 -right-0.5 w-6 h-6 border-b-4 border-r-4 border-green-400 rounded-br" />
-          <div className="absolute inset-x-0 top-0 h-0.5 bg-green-400 opacity-80 animate-bounce" style={{ animationDuration: "1.5s" }} />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingBottom: "18%" }}>
+        {/* Viewfinder — wider than before so aim is more forgiving */}
+        <div className="w-11/12 max-w-md h-44 relative">
+          {/* Dimmed areas outside the target */}
+          <div className="absolute inset-0 rounded-lg" style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }} />
+          {/* Corner brackets */}
+          <span className="absolute -top-0.5 -left-0.5 w-7 h-7 border-t-4 border-l-4 border-green-400 rounded-tl" />
+          <span className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 border-green-400 rounded-tr" />
+          <span className="absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-4 border-l-4 border-green-400 rounded-bl" />
+          <span className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 border-green-400 rounded-br" />
+          {/* Scan line sweeps top→bottom */}
+          <div
+            className="absolute inset-x-2 h-0.5 bg-green-400 opacity-90 rounded"
+            style={{ animation: "scanLine 1.8s ease-in-out infinite" }}
+          />
         </div>
       </div>
+      <style>{`
+        @keyframes scanLine {
+          0%   { top: 8px;  opacity: 0.9; }
+          45%  { top: calc(100% - 12px); opacity: 0.9; }
+          50%  { top: calc(100% - 12px); opacity: 0; }
+          55%  { top: 8px;  opacity: 0; }
+          60%  { top: 8px;  opacity: 0.9; }
+          100% { top: 8px;  opacity: 0.9; }
+        }
+      `}</style>
     </div>
   );
 }
