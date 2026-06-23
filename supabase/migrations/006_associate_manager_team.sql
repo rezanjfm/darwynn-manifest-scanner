@@ -19,6 +19,8 @@ ALTER TABLE user_profiles
 CREATE INDEX IF NOT EXISTS idx_user_profiles_manager ON user_profiles(manager_id);
 
 -- 5. Update get_user_kpi: admin sees all, manager sees only their assigned associates
+-- DROP required because the return type (OUT columns) changed — Postgres won't ALTER in-place
+DROP FUNCTION IF EXISTS get_user_kpi(date);
 CREATE OR REPLACE FUNCTION get_user_kpi(p_date DATE DEFAULT CURRENT_DATE)
 RETURNS TABLE (
   user_id        UUID,
@@ -73,6 +75,7 @@ END;
 $$;
 
 -- 6. Update search_parcels: managers can also see scanned_by_name (for their team)
+DROP FUNCTION IF EXISTS search_parcels(text, integer);
 CREATE OR REPLACE FUNCTION search_parcels(p_query TEXT, p_limit INTEGER DEFAULT 20)
 RETURNS TABLE (
   id                 UUID,

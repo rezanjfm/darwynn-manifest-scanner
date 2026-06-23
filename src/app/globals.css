@@ -6,19 +6,56 @@
   html {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    scroll-behavior: smooth;
   }
 
   body {
-    @apply bg-gray-50 text-gray-900;
+    background-color: #030712;
+    color: #f9fafb;
     overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Prevent double-tap zoom on buttons */
   button, a {
     touch-action: manipulation;
   }
+
+  /* Slim scrollbar */
+  ::-webkit-scrollbar               { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track         { background: transparent; }
+  ::-webkit-scrollbar-thumb         { background: rgba(255,255,255,0.10); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover   { background: rgba(255,255,255,0.20); }
+
+  /* Number inputs — remove spinners */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 }
 
-/* Full-height layout that respects mobile safe areas */
-.safe-top    { padding-top:    env(safe-area-inset-top); }
-.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+@layer utilities {
+  /* Safe-area helpers */
+  .safe-top    { padding-top:    env(safe-area-inset-top);    }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+  /* Glass surfaces */
+  .glass {
+    background:            rgba(255,255,255,0.03);
+    backdrop-filter:       blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border:                1px solid rgba(255,255,255,0.06);
+  }
+  .glass-md {
+    background:            rgba(255,255,255,0.05);
+    backdrop-filter:       blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border:                1px solid rgba(255,255,255,0.08);
+  }
+
+  /* Teal text gradient */
+  .text-gradient-brand {
+    background: linear-gradient(135deg, #00B2D8 0%, #33C4E0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}

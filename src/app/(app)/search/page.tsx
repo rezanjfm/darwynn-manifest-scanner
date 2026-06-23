@@ -67,23 +67,35 @@ export default function SearchPage() {
     doSearch(query);
   }
 
-  const isAdmin = userRole === "admin";
+  const isElevated = userRole === "admin" || userRole === "manager";
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-brand text-white px-4 py-4 safe-top">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Package Lookup</h1>
-            <p className="text-blue-200 text-sm">Search any tracking number</p>
-          </div>
-          <button onClick={() => router.push("/manifests")} className="bg-white/20 px-3 py-1.5 rounded-lg text-sm">
-            ← Back
+    <div className="min-h-screen bg-gray-950">
+
+      {/* Background glow */}
+      <div className="fixed inset-0 pointer-events-none" aria-hidden>
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[250px] bg-brand/4 blur-[100px] rounded-full" />
+      </div>
+
+      {/* Header */}
+      <header className="relative z-10 px-4 pt-5 pb-4 safe-top border-b border-white/5">
+        <div className="max-w-2xl mx-auto flex items-center gap-3">
+          <button
+            onClick={() => router.push("/manifests")}
+            className="w-9 h-9 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-gray-400 hover:text-white flex-none transition-colors"
+          >
+            ←
           </button>
+          <div>
+            <h1 className="text-lg font-bold text-white leading-tight">Package Lookup</h1>
+            <p className="text-gray-600 text-xs">Search any tracking number</p>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto p-4 space-y-4">
+      <main className="relative z-10 max-w-2xl mx-auto px-4 pt-5 pb-12 space-y-4">
+
+        {/* Search form */}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             ref={inputRef}
@@ -91,7 +103,7 @@ export default function SearchPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value.toUpperCase())}
             placeholder="Tracking number or partial…"
-            className="flex-1 border-2 border-gray-200 rounded-xl px-4 py-3 font-mono text-base focus:outline-none focus:border-blue-500 bg-white"
+            className="flex-1 bg-white/5 border border-white/10 text-white placeholder-gray-600 rounded-xl px-4 py-3.5 font-mono text-sm focus:outline-none focus:border-brand/50 focus:bg-white/8 transition-all"
             autoCapitalize="characters"
             autoCorrect="off"
             spellCheck={false}
@@ -99,83 +111,87 @@ export default function SearchPage() {
           <button
             type="submit"
             disabled={loading || query.trim().length < 3}
-            className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold disabled:opacity-40 min-w-[72px]"
+            className="px-5 py-3.5 rounded-xl font-bold text-sm text-white disabled:opacity-30 transition-all active:scale-[0.97] min-w-[80px] flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, #00B2D8, #0093B8)" }}
           >
-            {loading ? "…" : "Search"}
+            {loading
+              ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              : "Search"
+            }
           </button>
         </form>
 
-        {!isAdmin && (
-          <p className="text-xs text-gray-400 text-center">
-            Who scanned each package is not shown — contact your admin for details.
+        {!isElevated && (
+          <p className="text-xs text-gray-700 text-center">
+            Scanner identity is not shown — contact your admin for details.
           </p>
         )}
 
         {searched && !loading && results.length === 0 && (
-          <div className="text-center text-gray-400 py-14">
-            <div className="text-5xl mb-3">📭</div>
-            <p className="font-semibold">Not found</p>
-            <p className="text-sm mt-1">"{query}" has no scan record.</p>
+          <div className="text-center py-16">
+            <div className="text-5xl mb-4 opacity-20">📭</div>
+            <p className="text-gray-400 font-semibold">Not found</p>
+            <p className="text-gray-600 text-sm mt-1">&ldquo;{query}&rdquo; has no scan record.</p>
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           {results.map((r) => {
-            const isInbound = r.manifest_direction === "inbound";
+            const isIn = r.manifest_direction === "inbound";
             return (
-              <div
+              <button
                 key={r.id}
-                className={`bg-white rounded-2xl p-4 shadow-sm border-l-4 ${
-                  isInbound ? "border-orange-400" : "border-green-400"
-                }`}
+                onClick={() => router.push(`/scan/${r.manifest_id}`)}
+                className="w-full glass rounded-2xl p-4 text-left transition-all active:scale-[0.98] hover:bg-white/[0.05]"
               >
                 <div className="flex items-start gap-3">
-                  <div className={`text-3xl mt-0.5 flex-none ${isInbound ? "text-orange-400" : "text-green-500"}`}>
-                    {isInbound ? "↩" : "✓"}
+                  <div className="flex-none mt-0.5">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-base ${
+                      isIn ? "bg-orange-500/15 text-orange-400" : "bg-brand/15 text-brand"
+                    }`}>
+                      {isIn ? "↩" : "✓"}
+                    </div>
                   </div>
                   <div className="flex-1 min-w-0">
                     {/* Badges */}
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      {isInbound ? (
-                        <span className="bg-orange-100 text-orange-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                          RETURN
-                        </span>
-                      ) : (
-                        <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                          OUTBOUND
-                        </span>
-                      )}
-                      <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">
-                        {r.manifest_status === "closed" ? "Manifest Closed" : "Manifest Open"}
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded ${
+                        isIn ? "bg-orange-500/15 text-orange-400" : "bg-brand/15 text-brand"
+                      }`}>
+                        {isIn ? "RETURN" : "OUTBOUND"}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                        r.manifest_status === "closed"
+                          ? "bg-gray-700/50 text-gray-500"
+                          : "bg-green-500/15 text-green-400"
+                      }`}>
+                        {r.manifest_status === "closed" ? "CLOSED" : "OPEN"}
                       </span>
                       {r.entry_method === "manual" && (
-                        <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full">
-                          Manual entry
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-yellow-500/15 text-yellow-400">
+                          Manual
                         </span>
                       )}
                     </div>
 
-                    {/* Tracking number */}
-                    <div className="font-mono font-bold text-lg leading-tight truncate">
+                    <div className="font-mono font-bold text-white text-sm leading-tight truncate">
                       {r.tracking_number}
                     </div>
 
-                    {/* Carrier + date */}
-                    <div className="text-gray-600 text-sm mt-0.5">{r.carrier_name}</div>
-                    <div className="text-gray-500 text-sm">
-                      {format(new Date(r.scanned_at), "MMM d, yyyy")} at{" "}
-                      {format(new Date(r.scanned_at), "h:mm a")}
+                    <div className="text-gray-500 text-xs mt-1">
+                      {r.carrier_name} · {format(new Date(r.scanned_at), "MMM d")} at {format(new Date(r.scanned_at), "h:mm a")}
                     </div>
 
-                    {/* Admin-only: who scanned it */}
-                    {isAdmin && r.scanned_by_name && (
-                      <div className="text-xs text-purple-600 mt-1 font-medium">
-                        Scanned by {r.scanned_by_name}
+                    {isElevated && r.scanned_by_name && (
+                      <div className="text-xs text-brand/70 mt-0.5">
+                        {r.scanned_by_name}
                       </div>
                     )}
                   </div>
+
+                  <div className="flex-none text-gray-700 text-sm">→</div>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>

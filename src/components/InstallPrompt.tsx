@@ -43,23 +43,24 @@ export default function InstallPrompt() {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 max-w-sm mx-auto">
-      <div className="bg-gray-900 border border-gray-700 text-white rounded-2xl p-4 shadow-2xl flex items-center gap-3">
-        <img src="/icons/icon-96.png" alt="Darwynn" className="w-12 h-12 rounded-xl flex-none" />
+    <div className="fixed bottom-5 left-4 right-4 z-50 max-w-sm mx-auto animate-slide-up">
+      <div className="glass-md border border-white/10 text-white rounded-2xl px-4 py-3.5 shadow-brand-lg flex items-center gap-3">
+        <img src="/icons/icon-96.png" alt="Darwynn" className="w-11 h-11 rounded-xl flex-none" />
         <div className="flex-1 min-w-0">
-          <div className="font-bold text-sm leading-tight">Add Darwynn to Home Screen</div>
-          <div className="text-gray-400 text-xs mt-0.5">One tap away — works offline too</div>
+          <div className="font-bold text-sm leading-tight">Add to Home Screen</div>
+          <div className="text-gray-500 text-xs mt-0.5">Works offline too</div>
         </div>
-        <div className="flex gap-2 flex-none">
+        <div className="flex items-center gap-2 flex-none">
           <button
             onClick={install}
-            className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1.5 rounded-lg text-sm transition-colors"
+            className="text-white font-bold px-3.5 py-1.5 rounded-lg text-sm transition-all active:scale-[0.97]"
+            style={{ background: "linear-gradient(135deg, #00B2D8, #0093B8)" }}
           >
             Install
           </button>
           <button
             onClick={dismiss}
-            className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1 transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-600 hover:text-gray-400 hover:bg-white/5 transition-colors text-base"
             aria-label="Dismiss"
           >
             ✕

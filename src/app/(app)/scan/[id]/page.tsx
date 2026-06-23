@@ -316,8 +316,8 @@ export default function ScanPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
-        <div className="text-white text-lg">Loading scanner…</div>
+      <div className="h-screen flex items-center justify-center bg-gray-950">
+        <div className="w-8 h-8 border-2 border-brand/30 border-t-brand rounded-full animate-spin" />
       </div>
     );
   }
@@ -326,97 +326,107 @@ export default function ScanPage() {
 
   const isClosed = manifest.status === "closed";
   const isInbound = manifest.direction === "inbound";
-  // Status badges shown in top bar — only non-empty entries render
-  const statusBadges = [
-    isInbound  && { label: "↩ RETURN",       cls: "bg-orange-500 text-white" },
-    !isOnline  && { label: "OFFLINE",         cls: "bg-yellow-600 text-yellow-100" },
-    syncing    && { label: "Syncing…",        cls: "bg-blue-700 text-blue-100" },
-    isClosed   && { label: "CLOSED",          cls: "bg-gray-600 text-gray-300" },
-  ].filter(Boolean) as { label: string; cls: string }[];
 
   return (
-    <div className="h-screen flex flex-col bg-black overflow-hidden">
+    <div className="h-screen flex flex-col bg-gray-950 overflow-hidden">
 
-      {/* ── Top bar — single compact row ── */}
-      <div className={`flex-none text-white px-3 py-2 safe-top ${isInbound ? "bg-orange-900" : "bg-gray-900"}`}>
-        <div className="flex items-center gap-2">
+      {/* ── Top bar ── */}
+      <div className={`flex-none text-white px-4 py-3 safe-top border-b ${
+        isInbound ? "bg-orange-950/80 border-orange-900/50" : "bg-gray-900/80 border-white/5"
+      } backdrop-blur-sm`}>
+        <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/manifests")}
-            className="text-gray-400 text-xl leading-none p-1 flex-none"
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/8 flex items-center justify-center text-gray-400 hover:text-white flex-none transition-colors text-base"
             aria-label="Back"
           >
             ←
           </button>
 
           <div className="flex-1 flex items-center gap-2 min-w-0">
-            <span className="font-bold text-base leading-tight truncate">{carrier.name}</span>
-            {statusBadges.map((b) => (
-              <span key={b.label} className={`text-xs px-1.5 py-0.5 rounded font-semibold flex-none ${b.cls}`}>
-                {b.label}
+            <span className="font-bold text-sm leading-tight truncate">{carrier.name}</span>
+            {isInbound && (
+              <span className="text-[10px] font-black px-2 py-0.5 rounded bg-orange-500/20 border border-orange-500/30 text-orange-400 flex-none">
+                ↩ RETURN
               </span>
-            ))}
+            )}
+            {isClosed && (
+              <span className="text-[10px] font-black px-2 py-0.5 rounded bg-gray-700/50 text-gray-400 flex-none">
+                CLOSED
+              </span>
+            )}
+            {!isOnline && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-500/15 border border-yellow-500/20 text-yellow-400 flex-none">
+                OFFLINE
+              </span>
+            )}
+            {syncing && (
+              <span className="text-[10px] font-bold text-brand flex-none animate-pulse">Syncing…</span>
+            )}
           </div>
 
-          {/* Parcel count — the number workers watch most */}
-          <div className="flex-none text-right">
-            <span className={`text-3xl font-black tabular-nums leading-none ${isInbound ? "text-orange-300" : "text-green-400"}`}>
-              {manifest.parcel_count}
-            </span>
+          <div className={`flex-none font-black tabular-nums leading-none ${isInbound ? "text-orange-400" : "text-brand"}`}
+            style={{ fontSize: "2.5rem" }}>
+            {manifest.parcel_count}
           </div>
         </div>
       </div>
 
       {/* ── Camera — takes ALL remaining height ── */}
-      <div className="flex-1 relative overflow-hidden min-h-0">
+      <div className="flex-1 relative overflow-hidden min-h-0 bg-black">
         <BarcodeScanner onScan={(v) => handleScan(v, "scan")} active={scannerActive} />
 
-        {/* Feedback strip — absolute at top of camera, 600 ms for success */}
         {feedback && (
           <div className="absolute top-0 inset-x-0 z-30">
             <ScanFeedback feedback={feedback} onDismiss={() => setFeedback(null)} />
           </div>
         )}
 
-        {/* Recent scans overlay — bottom of camera, semi-transparent, max 4 rows */}
+        {/* Recent scans live feed */}
         {!isClosed && scannedList.length > 0 && (
-          <div className="absolute bottom-0 inset-x-0 z-20 bg-black/75 backdrop-blur-sm">
-            {scannedList.slice(0, 4).map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-2 px-3 py-1.5 border-t border-white/10 first:border-0"
-              >
-                <span
-                  className={`w-4 h-4 flex-none flex items-center justify-center text-[10px] rounded font-bold ${
-                    p.entry_method === "manual" ? "bg-yellow-700 text-yellow-200" : "bg-green-800 text-green-300"
-                  }`}
+          <div className="absolute bottom-0 inset-x-0 z-20">
+            <div className="bg-black/80 backdrop-blur-sm border-t border-white/5">
+              {scannedList.slice(0, 4).map((p, i) => (
+                <div
+                  key={p.id}
+                  className={`flex items-center gap-3 px-4 py-2.5 ${i > 0 ? "border-t border-white/5" : ""} ${i === 0 ? "bg-white/[0.03]" : ""}`}
                 >
-                  {p.entry_method === "manual" ? "M" : "S"}
-                </span>
-                <span className="font-mono text-xs text-white flex-1 truncate">{p.tracking_number}</span>
-                <span className="text-gray-400 text-xs flex-none">{timeAgo(p.scanned_at)}</span>
-                {userRole !== "associate" && (
-                  <button
-                    onClick={() => voidScan(p.id, p.tracking_number)}
-                    className="text-red-400 text-[11px] flex-none px-1 py-0.5 rounded active:bg-red-900/50"
-                    aria-label="Remove scan"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ))}
+                  <span className={`w-5 h-5 flex-none flex items-center justify-center text-[10px] rounded-md font-black ${
+                    p.entry_method === "manual" ? "bg-yellow-500/20 text-yellow-400" : "bg-green-500/20 text-green-400"
+                  }`}>
+                    {p.entry_method === "manual" ? "M" : "S"}
+                  </span>
+                  <span className="font-mono text-xs text-white flex-1 truncate">{p.tracking_number}</span>
+                  <span className="text-gray-600 text-xs flex-none">{timeAgo(p.scanned_at)}</span>
+                  {userRole !== "associate" && (
+                    <button
+                      onClick={() => voidScan(p.id, p.tracking_number)}
+                      className="w-5 h-5 flex-none flex items-center justify-center rounded text-red-500/70 hover:text-red-400 hover:bg-red-500/10 transition-colors text-[11px]"
+                      aria-label="Remove scan"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Closed-manifest overlay */}
+        {/* Closed overlay */}
         {isClosed && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-white p-6 gap-4">
-            <div className="text-5xl">🔒</div>
-            <div className="text-xl font-bold">Manifest Closed</div>
-            <div className="text-gray-400 text-center">{manifest.parcel_count} parcels recorded</div>
+          <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-8 gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-gray-800/80 border border-white/8 flex items-center justify-center text-3xl">
+              🔒
+            </div>
+            <div className="text-center">
+              <div className="text-white font-bold text-xl mb-1">Manifest Closed</div>
+              <div className="text-gray-500 text-sm">{manifest.parcel_count} parcels recorded</div>
+            </div>
             <button
               onClick={exportCSV}
-              className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold text-lg"
+              className="w-full max-w-xs py-3.5 rounded-2xl font-bold text-sm text-white transition-all active:scale-[0.98]"
+              style={{ background: "linear-gradient(135deg, #00B2D8, #0093B8)" }}
             >
               Export CSV
             </button>
@@ -428,7 +438,7 @@ export default function ScanPage() {
                     .eq("id", manifestId);
                   setManifest((m) => m ? { ...m, status: "open" } : m);
                 }}
-                className="text-yellow-400 underline text-sm"
+                className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
               >
                 Reopen manifest
               </button>
@@ -437,39 +447,39 @@ export default function ScanPage() {
         )}
       </div>
 
-      {/* ── Bottom action bar — slim ── */}
+      {/* ── Bottom bar ── */}
       {!isClosed && (
-        <div className={`flex-none px-3 py-2 safe-bottom flex gap-2 ${isInbound ? "bg-orange-950" : "bg-gray-900"}`}>
+        <div className={`flex-none px-4 py-3 safe-bottom flex gap-2 border-t ${
+          isInbound ? "bg-orange-950/80 border-orange-900/50" : "bg-gray-900/80 border-white/5"
+        } backdrop-blur-sm`}>
           <button
             onClick={() => setShowManual(true)}
-            className="flex-1 bg-gray-700 text-white py-3 rounded-xl font-semibold text-sm"
+            className="flex-1 bg-white/8 border border-white/10 text-gray-300 py-3 rounded-xl font-semibold text-sm hover:bg-white/12 transition-colors active:scale-[0.97]"
           >
             ✎ Manual
           </button>
           <button
             onClick={exportCSV}
-            className="bg-gray-700 text-white px-3 py-3 rounded-xl font-semibold text-sm"
+            className="bg-white/8 border border-white/10 text-gray-400 px-4 py-3 rounded-xl font-semibold text-sm hover:bg-white/12 transition-colors active:scale-[0.97]"
           >
             CSV
           </button>
           <button
             onClick={closeManifest}
-            className="flex-1 bg-red-800 text-white py-3 rounded-xl font-bold text-sm"
+            className="flex-1 py-3 rounded-xl font-bold text-sm text-white transition-all active:scale-[0.97]"
+            style={{ background: "linear-gradient(135deg, #dc2626, #b91c1c)" }}
           >
             Close
           </button>
         </div>
       )}
 
-      {/* Manual entry modal */}
       {showManual && (
         <ManualEntryModal
           onSubmit={(v) => { setShowManual(false); handleScan(v, "manual"); }}
           onClose={() => setShowManual(false)}
         />
       )}
-
-
     </div>
   );
 }
