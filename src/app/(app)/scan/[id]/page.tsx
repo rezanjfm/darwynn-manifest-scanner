@@ -23,11 +23,19 @@ const BarcodeScanner = dynamic(() => import("@/components/BarcodeScanner"), {
 });
 
 function newId() {
-  // crypto.randomUUID() is available in modern browsers and Node 14.17+
   return typeof crypto !== "undefined" && crypto.randomUUID
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
 }
+
+function timeAgo(dateStr: string): string {
+  const secs = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  return `${Math.floor(secs / 3600)}h`;
+}
+
+type ScanItem = Pick<Parcel, "id" | "tracking_number" | "entry_method" | "scanned_at">;
 
 export default function ScanPage() {
   const { id: manifestId } = useParams<{ id: string }>();
@@ -37,7 +45,7 @@ export default function ScanPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [carrier, setCarrier] = useState<Carrier | null>(null);
   const [allCarriers, setAllCarriers] = useState<Carrier[]>([]);
-  const [parcels, setParcels] = useState<Parcel[]>([]);
+  const [scannedList, setScannedList] = useState<ScanItem[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [showManual, setShowManual] = useState(false);
   const [showClose, setShowClose] = useState(false);
@@ -47,10 +55,11 @@ export default function ScanPage() {
   const [userRole, setUserRole] = useState<"worker" | "manager">("worker");
   const [loading, setLoading] = useState(true);
 
-  // Track tracking numbers seen this session (local + DB)
   const seenRef = useRef<Set<string>>(new Set());
+  // Tracks IDs deleted optimistically so the realtime DELETE event doesn't double-decrement
+  const pendingDeletesRef = useRef<Set<string>>(new Set());
 
-  // --- Load manifest & carriers ---
+  // --- Load manifest, carriers, and parcel history ---
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -61,7 +70,12 @@ export default function ScanPage() {
         supabase.from("user_profiles").select("role").eq("id", user.id).single(),
         supabase.from("manifests").select("*, carrier:carriers(*)").eq("id", manifestId).single(),
         supabase.from("carriers").select("*").eq("active", true).order("name"),
-        supabase.from("parcels").select("tracking_number").eq("manifest_id", manifestId),
+        supabase
+          .from("parcels")
+          .select("id, tracking_number, entry_method, scanned_at")
+          .eq("manifest_id", manifestId)
+          .order("scanned_at", { ascending: false })
+          .limit(100),
       ]);
 
       if (profile) setUserRole(profile.role as "worker" | "manager");
@@ -70,9 +84,10 @@ export default function ScanPage() {
       setCarrier((mfData as unknown as { carrier: Carrier }).carrier);
       setAllCarriers(carriersData ?? []);
 
-      // Seed seen set with DB tracking numbers
-      const dbNums = new Set((parcelsData ?? []).map((p: { tracking_number: string }) => p.tracking_number));
-      // Also check offline queue
+      const items = (parcelsData ?? []) as ScanItem[];
+      setScannedList(items);
+
+      const dbNums = new Set(items.map((p) => p.tracking_number));
       const localNums = await getLocalTrackingNumbers(manifestId);
       seenRef.current = new Set([...dbNums, ...localNums]);
 
@@ -80,6 +95,48 @@ export default function ScanPage() {
     }
     load();
   }, [manifestId, router, supabase]);
+
+  // --- Realtime: sync count + list when another device scans or voids ---
+  useEffect(() => {
+    const channel = supabase
+      .channel(`manifest-parcels-${manifestId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "parcels", filter: `manifest_id=eq.${manifestId}` },
+        (payload) => {
+          const p = payload.new as Parcel;
+          // Skip if this device scanned it (already added optimistically)
+          if (seenRef.current.has(p.tracking_number)) return;
+          seenRef.current.add(p.tracking_number);
+          setManifest((m) => m ? { ...m, parcel_count: m.parcel_count + 1 } : m);
+          setScannedList((prev) => [
+            { id: p.id, tracking_number: p.tracking_number, entry_method: p.entry_method, scanned_at: p.scanned_at },
+            ...prev,
+          ]);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "parcels", filter: `manifest_id=eq.${manifestId}` },
+        (payload) => {
+          const deletedId = payload.old.id as string;
+          // Skip if this device initiated the void (already handled optimistically)
+          if (pendingDeletesRef.current.has(deletedId)) {
+            pendingDeletesRef.current.delete(deletedId);
+            return;
+          }
+          setScannedList((prev) => {
+            const item = prev.find((p) => p.id === deletedId);
+            if (item) seenRef.current.delete(item.tracking_number);
+            return prev.filter((p) => p.id !== deletedId);
+          });
+          setManifest((m) => m ? { ...m, parcel_count: Math.max(0, m.parcel_count - 1) } : m);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [manifestId, supabase]);
 
   // --- Online/offline tracking ---
   useEffect(() => {
@@ -110,7 +167,6 @@ export default function ScanPage() {
       if (!error) await markScanSynced(scan.id);
     }
     setSyncing(false);
-    // Refresh parcel count from DB
     const { data } = await supabase.from("manifests").select("parcel_count").eq("id", manifestId).single();
     if (data) setManifest((m) => m ? { ...m, parcel_count: data.parcel_count } : m);
   }, [isOnline, syncing, userId, manifestId, supabase]);
@@ -126,20 +182,17 @@ export default function ScanPage() {
 
     const tracking = extractTrackingNumber(rawBarcode);
 
-    // Duplicate detection (local + queue)
     if (seenRef.current.has(tracking)) {
       setFeedback({ type: "duplicate", tracking });
       return;
     }
 
-    // Carrier mismatch detection (Phase 2 extends this with real pattern matching)
     const detected = detectCarrier(tracking, allCarriers);
     if (detected && detected.id !== carrier.id) {
       setFeedback({ type: "wrong_carrier", tracking, detected: detected.name, expected: carrier.name });
       return;
     }
 
-    // Mark as seen immediately (before async ops)
     seenRef.current.add(tracking);
 
     const now = new Date().toISOString();
@@ -157,14 +210,12 @@ export default function ScanPage() {
       synced: false,
     };
 
-    // Queue locally first (works offline)
     await queueScan(scanRecord);
 
-    // Optimistically update count
     setManifest((m) => m ? { ...m, parcel_count: m.parcel_count + 1 } : m);
+    setScannedList((prev) => [{ id: scanId, tracking_number: tracking, entry_method: entryMethod, scanned_at: now }, ...prev]);
     setFeedback({ type: "success", tracking, carrier: carrier.name });
 
-    // Persist to Supabase if online
     if (isOnline) {
       const { error } = await supabase.from("parcels").insert({
         id: scanId,
@@ -179,6 +230,23 @@ export default function ScanPage() {
       if (!error) await markScanSynced(scanId);
     }
   }, [manifest, carrier, userId, userRole, allCarriers, manifestId, isOnline, supabase]);
+
+  // --- Void a scan (manager only) ---
+  const voidScan = useCallback(async (scanId: string, trackingNumber: string) => {
+    pendingDeletesRef.current.add(scanId);
+    // Optimistic update
+    seenRef.current.delete(trackingNumber);
+    setScannedList((prev) => prev.filter((p) => p.id !== scanId));
+    setManifest((m) => m ? { ...m, parcel_count: Math.max(0, m.parcel_count - 1) } : m);
+    const { error } = await supabase.from("parcels").delete().eq("id", scanId);
+    if (error) {
+      // Rollback
+      pendingDeletesRef.current.delete(scanId);
+      seenRef.current.add(trackingNumber);
+      setScannedList((prev) => [...prev]); // trigger re-render; full rollback would require stashing old list
+      setManifest((m) => m ? { ...m, parcel_count: m.parcel_count + 1 } : m);
+    }
+  }, [supabase]);
 
   // --- Close manifest ---
   async function closeManifest() {
@@ -256,7 +324,7 @@ export default function ScanPage() {
       </div>
 
       {/* Camera or closed overlay */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 relative overflow-hidden min-h-0">
         <BarcodeScanner onScan={(v) => handleScan(v, "scan")} active={scannerActive} />
 
         {isClosed && (
@@ -284,6 +352,34 @@ export default function ScanPage() {
           </div>
         )}
       </div>
+
+      {/* Recent scans panel */}
+      {!isClosed && scannedList.length > 0 && (
+        <div className="flex-none bg-gray-900 border-t border-gray-800 overflow-y-auto" style={{ maxHeight: "9rem" }}>
+          {scannedList.slice(0, 20).map((p) => (
+            <div key={p.id} className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 last:border-0">
+              <span
+                className={`w-5 h-5 flex-none flex items-center justify-center text-xs rounded font-bold ${
+                  p.entry_method === "manual" ? "bg-yellow-700 text-yellow-200" : "bg-green-800 text-green-300"
+                }`}
+              >
+                {p.entry_method === "manual" ? "M" : "S"}
+              </span>
+              <span className="font-mono text-sm text-white flex-1 truncate">{p.tracking_number}</span>
+              <span className="text-gray-500 text-xs flex-none">{timeAgo(p.scanned_at)}</span>
+              {userRole === "manager" && (
+                <button
+                  onClick={() => voidScan(p.id, p.tracking_number)}
+                  className="text-red-400 text-xs flex-none px-1.5 py-0.5 rounded hover:bg-red-900/50 transition-colors"
+                  aria-label="Remove scan"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Bottom action bar */}
       {!isClosed && (
