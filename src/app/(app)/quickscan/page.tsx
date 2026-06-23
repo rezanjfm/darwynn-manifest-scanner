@@ -34,36 +34,36 @@ type RecentScan = {
   method: "scan" | "manual";
 };
 
-// ── Inner component (needs Suspense because of useSearchParams) ───────────────
 function QuickScanInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
 
-  const initDir = (searchParams.get("dir") as "outbound" | "inbound") ?? "outbound";
+  const initDir   = (searchParams.get("dir")     as "outbound" | "inbound") ?? "outbound";
+  const initCarrierId = searchParams.get("carrier") ?? null; // pre-set carrier (from manifest list)
 
   const [direction, setDirection] = useState<"outbound" | "inbound">(initDir);
-  const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isOnline, setIsOnline] = useState(
+  const [carriers, setCarriers]   = useState<Carrier[]>([]);
+  const [userId, setUserId]       = useState<string | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [isOnline, setIsOnline]   = useState(
     typeof navigator !== "undefined" ? navigator.onLine : true
   );
 
-  const [activeCarrier, setActiveCarrier] = useState<Carrier | null>(null);
-  const [sessionCount, setSessionCount] = useState(0);
-  const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
-  const [feedback, setFeedback] = useState<FeedbackState>(null);
-  const [pendingBarcode, setPendingBarcode] = useState<string | null>(null);
-  const [showManual, setShowManual] = useState(false);
-  const [switching, setSwitching] = useState<string | null>(null);
+  const [activeCarrier, setActiveCarrier]   = useState<Carrier | null>(null);
+  const [otherCarrier, setOtherCarrier]     = useState<Carrier | null>(null);
+  const [sessionCount, setSessionCount]   = useState(0);
+  const [recentScans, setRecentScans]     = useState<RecentScan[]>([]);
+  const [feedback, setFeedback]           = useState<FeedbackState>(null);
+  const [showManual, setShowManual]       = useState(false);
+  const [switching, setSwitching]         = useState<string | null>(null);
+  // "detecting" while we probe for a camera, then "camera" or "hid"
+  const [inputMode, setInputMode]         = useState<"detecting" | "camera" | "hid">("detecting");
 
-  // carrierId:direction → manifestId
   const manifestCacheRef = useRef<Map<string, string>>(new Map());
-  // All tracking numbers seen this session (across all manifests)
-  const seenRef = useRef<Set<string>>(new Set());
+  const seenRef          = useRef<Set<string>>(new Set());
 
-  const scannerActive = !loading && !showManual && pendingBarcode === null;
+  const scannerActive = !loading && !showManual;
 
   // ── Auth + load carriers ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -71,23 +71,52 @@ function QuickScanInner() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
       setUserId(user.id);
-      const { data } = await supabase.from("carriers").select("*").eq("active", true).order("name");
-      setCarriers((data as Carrier[]) ?? []);
+
+      const { data } = await supabase
+        .from("carriers")
+        .select("*")
+        .eq("active", true)
+        .order("name");
+
+      const list = (data as Carrier[]) ?? [];
+      setCarriers(list);
+      setOtherCarrier(list.find(c => c.code === "OTHER") ?? null);
+
+      // Pre-set carrier if one was passed in the URL (e.g. from open manifest button)
+      if (initCarrierId) {
+        const found = list.find(c => c.id === initCarrierId);
+        if (found) setActiveCarrier(found);
+      }
+
+      // Probe for a camera without requesting permission yet.
+      // enumerateDevices() is permission-safe — it returns device types even without a grant.
+      try {
+        const devices = await navigator.mediaDevices?.enumerateDevices() ?? [];
+        const hasCamera = devices.some((d) => d.kind === "videoinput");
+        setInputMode(hasCamera ? "camera" : "hid");
+      } catch {
+        setInputMode("hid");
+      }
+
       setLoading(false);
     }
     init();
-  }, [supabase, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
 
   // ── Online / offline ──────────────────────────────────────────────────────────
   useEffect(() => {
-    const on = () => setIsOnline(true);
+    const on  = () => setIsOnline(true);
     const off = () => setIsOnline(false);
-    window.addEventListener("online", on);
+    window.addEventListener("online",  on);
     window.addEventListener("offline", off);
-    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+    return () => {
+      window.removeEventListener("online",  on);
+      window.removeEventListener("offline", off);
+    };
   }, []);
 
-  // ── Get or create manifest ────────────────────────────────────────────────────
+  // ── Get or create manifest for a carrier + direction ─────────────────────────
   const getOrCreateManifest = useCallback(
     async (carrierId: string, dir: "outbound" | "inbound"): Promise<string | null> => {
       const key = `${carrierId}:${dir}`;
@@ -95,25 +124,28 @@ function QuickScanInner() {
 
       const today = format(new Date(), "yyyy-MM-dd");
 
+      // Reuse existing open manifest for this carrier + direction today
       const { data: existing } = await supabase
         .from("manifests")
         .select("id")
         .eq("carrier_id", carrierId)
-        .eq("date", today)
-        .eq("direction", dir)
-        .eq("status", "open")
+        .eq("date",       today)
+        .eq("direction",  dir)
+        .eq("status",     "open")
         .maybeSingle();
 
       if (existing) {
         manifestCacheRef.current.set(key, existing.id);
+        // Pre-load seen tracking numbers to deduplicate correctly
         const { data: parcels } = await supabase
           .from("parcels")
           .select("tracking_number")
           .eq("manifest_id", existing.id);
-        parcels?.forEach((p) => seenRef.current.add(p.tracking_number));
+        parcels?.forEach(p => seenRef.current.add(p.tracking_number));
         return existing.id;
       }
 
+      // Create a new manifest
       const { data: newM } = await supabase
         .from("manifests")
         .insert({ carrier_id: carrierId, date: today, direction: dir, opened_by: userId })
@@ -127,11 +159,11 @@ function QuickScanInner() {
     [supabase, userId]
   );
 
-  // ── Core save ─────────────────────────────────────────────────────────────────
+  // ── Save a scan ───────────────────────────────────────────────────────────────
   const saveScan = useCallback(
     async (
       rawBarcode: string,
-      carrierId: string,
+      carrierId:  string,
       carrierName: string,
       entryMethod: "scan" | "manual",
       dir: "outbound" | "inbound"
@@ -148,41 +180,41 @@ function QuickScanInner() {
       if (!manifestId) return;
 
       seenRef.current.add(tracking);
-      setSessionCount((c) => c + 1);
+      setSessionCount(c => c + 1);
 
-      const now = new Date().toISOString();
+      const now    = new Date().toISOString();
       const scanId = newId();
 
-      setRecentScans((prev) => [
+      setRecentScans(prev => [
         { id: scanId, tracking, carrierName, time: now, method: entryMethod },
         ...prev.slice(0, 9),
       ]);
       setFeedback({ type: "success", tracking, carrier: carrierName });
 
       const record = {
-        id: scanId,
-        manifest_id: manifestId,
-        carrier_id: carrierId,
+        id:              scanId,
+        manifest_id:     manifestId,
+        carrier_id:      carrierId,
         tracking_number: tracking,
-        raw_barcode: rawBarcode,
-        entry_method: entryMethod,
-        scanned_by: userId,
-        scanned_at: now,
-        synced: false,
+        raw_barcode:     rawBarcode,
+        entry_method:    entryMethod,
+        scanned_by:      userId,
+        scanned_at:      now,
+        synced:          false,
       };
 
       await queueScan(record);
 
       if (isOnline) {
         const { error } = await supabase.from("parcels").insert({
-          id: record.id,
-          manifest_id: record.manifest_id,
-          carrier_id: record.carrier_id,
+          id:              record.id,
+          manifest_id:     record.manifest_id,
+          carrier_id:      record.carrier_id,
           tracking_number: record.tracking_number,
-          raw_barcode: record.raw_barcode,
-          entry_method: record.entry_method,
-          scanned_by: record.scanned_by,
-          scanned_at: record.scanned_at,
+          raw_barcode:     record.raw_barcode,
+          entry_method:    record.entry_method,
+          scanned_by:      record.scanned_by,
+          scanned_at:      record.scanned_at,
         });
         if (!error) await markScanSynced(scanId);
       }
@@ -190,45 +222,34 @@ function QuickScanInner() {
     [userId, getOrCreateManifest, isOnline, supabase]
   );
 
-  // ── Handle scan ───────────────────────────────────────────────────────────────
+  // ── Handle a scan ─────────────────────────────────────────────────────────────
   const handleScan = useCallback(
     async (rawBarcode: string, entryMethod: "scan" | "manual" = "scan") => {
       const tracking = extractTrackingNumber(rawBarcode);
       const detected = detectCarrier(tracking, carriers);
 
-      if (!detected) {
-        if (activeCarrier) {
-          // Unknown pattern but we have an active carrier — assign to it
-          await saveScan(rawBarcode, activeCarrier.id, activeCarrier.name, entryMethod, direction);
-        } else {
-          // No context — ask worker to pick carrier
-          setPendingBarcode(rawBarcode);
+      if (detected) {
+        // Auto-switch carrier if it changed
+        if (detected.id !== activeCarrier?.id) {
+          setSwitching(detected.name);
+          setActiveCarrier(detected);
+          setTimeout(() => setSwitching(null), 1800);
         }
+        await saveScan(rawBarcode, detected.id, detected.name, entryMethod, direction);
         return;
       }
 
-      // Auto-switch carrier if different
-      if (detected.id !== activeCarrier?.id) {
-        setSwitching(detected.name);
-        setActiveCarrier(detected);
-        setTimeout(() => setSwitching(null), 1800);
+      // Carrier not detected from barcode pattern
+      // Priority: active carrier (mid-run) → Other catch-all → nothing (shouldn't happen)
+      const fallback = activeCarrier ?? otherCarrier;
+      if (fallback) {
+        await saveScan(rawBarcode, fallback.id, fallback.name, entryMethod, direction);
       }
-
-      await saveScan(rawBarcode, detected.id, detected.name, entryMethod, direction);
     },
-    [carriers, activeCarrier, direction, saveScan]
+    [carriers, activeCarrier, otherCarrier, direction, saveScan]
   );
 
-  // ── Carrier picker (unknown barcode) ──────────────────────────────────────────
-  async function assignCarrier(carrier: Carrier) {
-    if (!pendingBarcode) return;
-    const barcode = pendingBarcode;
-    setActiveCarrier(carrier);
-    setPendingBarcode(null);
-    await saveScan(barcode, carrier.id, carrier.name, "scan", direction);
-  }
-
-  // ── HID keyboard wedge ────────────────────────────────────────────────────────
+  // ── HID keyboard-wedge support ────────────────────────────────────────────────
   const handleScanRef = useRef(handleScan);
   useEffect(() => { handleScanRef.current = handleScan; }, [handleScan]);
 
@@ -252,7 +273,10 @@ function QuickScanInner() {
       timer = setTimeout(flush, 200);
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => { document.removeEventListener("keydown", onKeyDown); if (timer) clearTimeout(timer); };
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (timer) clearTimeout(timer);
+    };
   }, [scannerActive]);
 
   function toggleDirection() {
@@ -274,7 +298,7 @@ function QuickScanInner() {
   return (
     <div className="h-screen flex flex-col bg-black overflow-hidden">
 
-      {/* Top bar */}
+      {/* ── Top bar ── */}
       <div className={`flex-none text-white px-3 py-2 safe-top ${isInbound ? "bg-orange-900" : "bg-gray-900"}`}>
         <div className="flex items-center gap-2">
           <button
@@ -306,9 +330,11 @@ function QuickScanInner() {
             {isInbound ? "↩ RETURN" : "↑ OUTBOUND"}
           </button>
 
-          {/* Count */}
+          {/* Package count */}
           <div className="flex-none text-right">
-            <span className={`text-3xl font-black tabular-nums leading-none ${isInbound ? "text-orange-300" : "text-green-400"}`}>
+            <span className={`text-3xl font-black tabular-nums leading-none ${
+              isInbound ? "text-orange-300" : "text-green-400"
+            }`}>
               {sessionCount}
             </span>
           </div>
@@ -323,9 +349,45 @@ function QuickScanInner() {
         )}
       </div>
 
-      {/* Camera */}
-      <div className="flex-1 relative overflow-hidden min-h-0">
-        <BarcodeScanner onScan={(v) => handleScan(v, "scan")} active={scannerActive} />
+      {/* ── Main scanning area ── */}
+      <div className="flex-1 relative overflow-hidden min-h-0 bg-black">
+
+        {/* Camera mode */}
+        {inputMode === "camera" && (
+          <BarcodeScanner
+            onScan={v => handleScan(v, "scan")}
+            active={scannerActive}
+            onCameraUnavailable={() => setInputMode("hid")}
+          />
+        )}
+
+        {/* HID / USB scanner mode — camera unavailable on this device */}
+        {inputMode === "hid" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-8">
+            {/* Pulsing ring to show "live" state */}
+            <div className="relative mb-6">
+              <div className="w-24 h-24 rounded-full border-4 border-brand/30 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-full border-4 border-brand/60 flex items-center justify-center animate-pulse">
+                  <span className="text-3xl">📡</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-white font-bold text-xl mb-1">Scanner Ready</p>
+            <p className="text-gray-400 text-sm text-center">
+              Aim your barcode / QR scanner at any label
+            </p>
+            <p className="text-gray-600 text-xs mt-3 text-center">
+              {isInbound ? "↩ Receiving returns" : "↑ Outbound mode"} · USB &amp; Bluetooth scanners supported
+            </p>
+          </div>
+        )}
+
+        {/* Detecting — brief flash before we know the mode */}
+        {inputMode === "detecting" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-gray-600 text-sm animate-pulse">Initialising…</div>
+          </div>
+        )}
 
         {feedback && (
           <div className="absolute top-0 inset-x-0 z-30">
@@ -333,24 +395,10 @@ function QuickScanInner() {
           </div>
         )}
 
-        {/* First-scan hint */}
-        {!activeCarrier && recentScans.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <div className="bg-black/70 rounded-2xl px-8 py-6 text-center">
-              <div className="text-5xl mb-3">📦</div>
-              <div className="text-white font-bold text-lg">Scan any package</div>
-              <div className="text-gray-400 text-sm mt-1">Carrier detected automatically</div>
-              <div className="text-gray-600 text-xs mt-3">
-                {isInbound ? "↩ Receiving returns mode" : "↑ Outbound mode"}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Recent scans overlay */}
+        {/* Recent scans — shown in both modes */}
         {recentScans.length > 0 && (
-          <div className="absolute bottom-0 inset-x-0 z-20 bg-black/80 backdrop-blur-sm">
-            {recentScans.slice(0, 4).map((s) => (
+          <div className="absolute bottom-0 inset-x-0 z-20 bg-black/85 backdrop-blur-sm">
+            {recentScans.slice(0, 4).map(s => (
               <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 border-t border-white/10 first:border-0">
                 <span className={`w-4 h-4 flex-none flex items-center justify-center text-[10px] rounded font-bold ${
                   s.method === "manual" ? "bg-yellow-700 text-yellow-200" : "bg-green-800 text-green-300"
@@ -363,15 +411,25 @@ function QuickScanInner() {
             ))}
           </div>
         )}
+
+        {/* First-scan hint for camera mode when nothing scanned yet */}
+        {inputMode === "camera" && !activeCarrier && recentScans.length === 0 && (
+          <div className="absolute top-4 inset-x-0 flex justify-center pointer-events-none z-10">
+            <div className="bg-black/70 rounded-xl px-4 py-2 text-center">
+              <div className="text-white text-sm font-medium">Point at any label to start</div>
+              <div className="text-gray-400 text-xs mt-0.5">Carrier detected automatically</div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Bottom bar */}
+      {/* ── Bottom bar ── */}
       <div className={`flex-none px-3 py-2 safe-bottom flex gap-2 ${isInbound ? "bg-orange-950" : "bg-gray-900"}`}>
         <button
           onClick={() => setShowManual(true)}
           className="flex-1 bg-gray-700 text-white py-3 rounded-xl font-semibold text-sm"
         >
-          ✎ Manual
+          ✎ Manual entry
         </button>
         <button
           onClick={() => router.push("/manifests")}
@@ -383,46 +441,15 @@ function QuickScanInner() {
 
       {showManual && (
         <ManualEntryModal
-          onSubmit={(v) => { setShowManual(false); handleScan(v, "manual"); }}
+          onSubmit={v => { setShowManual(false); handleScan(v, "manual"); }}
           onClose={() => setShowManual(false)}
         />
-      )}
-
-      {/* Carrier picker */}
-      {pendingBarcode !== null && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end">
-          <div className="bg-gray-900 w-full rounded-t-2xl p-5 space-y-4">
-            <div>
-              <h2 className="text-white font-bold text-lg">Which carrier is this?</h2>
-              <p className="text-gray-500 text-xs font-mono mt-1 truncate">
-                {extractTrackingNumber(pendingBarcode)}
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
-              {carriers.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => assignCarrier(c)}
-                  className="bg-gray-800 hover:bg-gray-700 active:scale-95 text-white rounded-xl py-4 font-semibold text-sm transition-all"
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setPendingBarcode(null)}
-              className="w-full py-2.5 text-gray-500 text-sm"
-            >
-              Skip this package
-            </button>
-          </div>
-        </div>
       )}
     </div>
   );
 }
 
-// ── Exported page — Suspense required for useSearchParams ─────────────────────
+// Suspense wrapper required because useSearchParams() is used inside
 export default function QuickScanPage() {
   return (
     <Suspense fallback={

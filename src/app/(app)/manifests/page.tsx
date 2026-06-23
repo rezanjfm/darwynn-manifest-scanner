@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Manifest, Carrier } from "@/types";
 import { format } from "date-fns";
+import Logo from "@/components/Logo";
 
 type ManifestWithCarrier = Manifest & { carrier: Carrier };
 
@@ -60,11 +61,11 @@ export default function ManifestsPage() {
     <div className="min-h-screen bg-gray-50">
 
       {/* Header */}
-      <header className="bg-brand text-white px-4 py-4 safe-top">
+      <header className="bg-brand-surface text-white px-4 py-3 safe-top border-b border-white/10">
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">📦 Darwynn Scanner</h1>
-            <p className="text-blue-200 text-sm">{format(new Date(), "EEEE, MMMM d")}</p>
+            <Logo variant="dark" height="h-8" />
+            <p className="text-gray-400 text-xs mt-0.5">{format(new Date(), "EEEE, MMMM d")}</p>
           </div>
           <div className="flex gap-2 items-center flex-wrap justify-end">
             <button onClick={() => router.push("/search")} className="text-sm bg-white/20 px-3 py-1.5 rounded-lg">
@@ -96,7 +97,7 @@ export default function ManifestsPage() {
         <div className="space-y-2">
           <button
             onClick={() => router.push("/quickscan")}
-            className="w-full bg-brand text-white rounded-2xl p-5 shadow font-bold text-xl active:scale-95 transition-transform flex items-center justify-center gap-3"
+            className="w-full bg-brand hover:bg-brand-dark text-white rounded-2xl p-5 shadow font-bold text-xl active:scale-95 transition-transform flex items-center justify-center gap-3"
           >
             <span className="text-3xl">📷</span>
             <span>Start Scanning</span>
@@ -122,10 +123,11 @@ export default function ManifestsPage() {
                 const elapsed = m.opened_at
                   ? Math.round((Date.now() - new Date(m.opened_at).getTime()) / 60000)
                   : 0;
+                const scanUrl = `/quickscan?carrier=${m.carrier_id}${isIn ? "&dir=inbound" : ""}`;
                 return (
                   <button
                     key={m.id}
-                    onClick={() => router.push(`/scan/${m.id}`)}
+                    onClick={() => router.push(scanUrl)}
                     className={`w-full rounded-2xl p-4 shadow-sm border-2 active:scale-95 transition-transform text-left ${
                       isIn ? "bg-white border-orange-100" : "bg-white border-blue-100"
                     }`}

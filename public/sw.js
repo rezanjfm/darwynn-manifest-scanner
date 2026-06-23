@@ -1,24 +1,34 @@
-// Darwynn Manifest Scanner — Service Worker
-// Caches the app shell so it loads instantly on the dock even with poor signal.
+// Darwynn Scanner — Service Worker
+// Caches the app shell for instant load even on poor warehouse Wi-Fi.
 
-const CACHE = "darwynn-v1";
+const CACHE = "darwynn-v2";
 
-// These are the routes and assets that make up the app shell.
-// Next.js static assets are versioned, so we rely on the browser cache for them
-// and only hard-cache the minimal shell here.
-const SHELL = ["/", "/manifests", "/login", "/manifest.json", "/icons/icon-192.png"];
+const SHELL = [
+  "/",
+  "/manifests",
+  "/quickscan",
+  "/login",
+  "/manifest.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/apple-touch-icon.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then((cache) => cache.addAll(SHELL))
+      .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -26,28 +36,28 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Never intercept Supabase API calls — they must go to the network.
+  // Never intercept Supabase — must reach the network.
   if (url.hostname.includes("supabase.co")) return;
-  // Don't intercept POST/PUT/PATCH — let them fail naturally if offline.
+  // Let mutations through — they fail naturally offline.
   if (request.method !== "GET") return;
 
-  // For navigation requests: network-first, fall back to cached root.
+  // Navigation: network-first, fall back to cached shell.
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() => caches.match("/") )
+      fetch(request).catch(() => caches.match("/manifests") ?? caches.match("/"))
     );
     return;
   }
 
-  // For everything else: stale-while-revalidate.
+  // Everything else: stale-while-revalidate.
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(request);
-      const networkFetch = fetch(request).then((resp) => {
+      const network = fetch(request).then((resp) => {
         if (resp.ok) cache.put(request, resp.clone());
         return resp;
       }).catch(() => cached);
-      return cached ?? networkFetch;
+      return cached ?? network;
     })
   );
 });

@@ -5,19 +5,22 @@ import { useEffect, useRef, useCallback } from "react";
 interface BarcodeScannerProps {
   onScan: (value: string) => void;
   active: boolean;
+  /** Called when camera is unavailable (no device or permission denied) */
+  onCameraUnavailable?: () => void;
 }
 
 // Uses the native BarcodeDetector API (Chrome 83+) with ZXing as fallback.
-export default function BarcodeScanner({ onScan, active }: BarcodeScannerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const mountedRef = useRef(true);
-  const lastResultRef = useRef<string>("");
+// Detects barcodes AND QR codes in all common formats.
+export default function BarcodeScanner({ onScan, active, onCameraUnavailable }: BarcodeScannerProps) {
+  const videoRef        = useRef<HTMLVideoElement>(null);
+  const streamRef       = useRef<MediaStream | null>(null);
+  const rafRef          = useRef<number | null>(null);
+  const mountedRef      = useRef(true);
+  const lastResultRef   = useRef<string>("");
   const lastResultTimeRef = useRef<number>(0);
 
   const stopCamera = useCallback(() => {
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (rafRef.current)  { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
     if (videoRef.current) videoRef.current.srcObject = null;
   }, []);
@@ -33,9 +36,15 @@ export default function BarcodeScanner({ onScan, active }: BarcodeScannerProps) 
   const startNativeDetector = useCallback(async (video: HTMLVideoElement) => {
     const BD = window.BarcodeDetector!;
     const supported = await BD.getSupportedFormats();
-    const formats = ["code_128", "pdf417", "qr_code", "data_matrix", "aztec", "ean_13", "ean_8"]
-      .filter((f) => supported.includes(f));
-    const detector = new BD({ formats });
+    // Include all barcode + QR / 2D formats that the device supports
+    const wanted = [
+      "code_128", "code_39", "code_93", "codabar", "itf",
+      "ean_13", "ean_8", "upc_a", "upc_e",
+      "pdf417", "data_matrix", "aztec",
+      "qr_code",    // QR codes (e.g. Obibox)
+    ];
+    const formats = wanted.filter((f) => supported.includes(f));
+    const detector = new BD({ formats: formats.length ? formats : supported });
 
     const detect = async () => {
       if (!mountedRef.current || !active) return;
@@ -51,8 +60,25 @@ export default function BarcodeScanner({ onScan, active }: BarcodeScannerProps) 
   }, [active, handleDetected]);
 
   const startZXing = useCallback(async (video: HTMLVideoElement) => {
-    const { BrowserMultiFormatReader } = await import("@zxing/browser");
-    const reader = new BrowserMultiFormatReader();
+    const { BrowserMultiFormatReader, BarcodeFormat } = await import("@zxing/browser");
+    const { DecodeHintType } = await import("@zxing/library");
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.CODE_93,
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.UPC_E,
+      BarcodeFormat.ITF,
+      BarcodeFormat.PDF_417,
+      BarcodeFormat.DATA_MATRIX,
+      BarcodeFormat.AZTEC,
+      BarcodeFormat.QR_CODE,
+    ]);
+    hints.set(DecodeHintType.TRY_HARDER, true);
+    const reader = new BrowserMultiFormatReader(hints);
     const stream = streamRef.current;
     if (!stream) return;
     reader.decodeFromStream(stream, video, (result) => {
@@ -81,14 +107,14 @@ export default function BarcodeScanner({ onScan, active }: BarcodeScannerProps) 
         } else {
           await startZXing(video);
         }
-      } catch (err) {
-        console.error("Camera init failed:", err);
+      } catch {
+        if (!cancelled) onCameraUnavailable?.();
       }
     }
 
     init();
     return () => { cancelled = true; mountedRef.current = false; stopCamera(); };
-  }, [active, startNativeDetector, startZXing, stopCamera]);
+  }, [active, startNativeDetector, startZXing, stopCamera, onCameraUnavailable]);
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden">
@@ -97,31 +123,41 @@ export default function BarcodeScanner({ onScan, active }: BarcodeScannerProps) 
         className="absolute inset-0 w-full h-full object-cover"
         muted playsInline autoPlay
       />
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingBottom: "18%" }}>
-        {/* Viewfinder — wider than before so aim is more forgiving */}
-        <div className="w-11/12 max-w-md h-44 relative">
-          {/* Dimmed areas outside the target */}
-          <div className="absolute inset-0 rounded-lg" style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }} />
-          {/* Corner brackets */}
-          <span className="absolute -top-0.5 -left-0.5 w-7 h-7 border-t-4 border-l-4 border-green-400 rounded-tl" />
-          <span className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 border-green-400 rounded-tr" />
-          <span className="absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-4 border-l-4 border-green-400 rounded-bl" />
-          <span className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 border-green-400 rounded-br" />
-          {/* Scan line sweeps top→bottom */}
-          <div
-            className="absolute inset-x-2 h-0.5 bg-green-400 opacity-90 rounded"
-            style={{ animation: "scanLine 1.8s ease-in-out infinite" }}
-          />
+      <div
+        className="absolute inset-0 flex items-center justify-center pointer-events-none"
+        style={{ paddingBottom: "12%" }}
+      >
+        {/* Viewfinder — slightly taller to cover both 1D barcodes and QR codes */}
+        <div className="w-10/12 max-w-xs" style={{ aspectRatio: "1 / 0.75" }}>
+          <div className="relative w-full h-full">
+            <div className="absolute inset-0 rounded-lg" style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.50)" }} />
+            {/* Corner brackets */}
+            <span className="absolute -top-0.5 -left-0.5  w-7 h-7 border-t-4 border-l-4 border-brand rounded-tl" />
+            <span className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 border-brand rounded-tr" />
+            <span className="absolute -bottom-0.5 -left-0.5  w-7 h-7 border-b-4 border-l-4 border-brand rounded-bl" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 border-brand rounded-br" />
+            {/* Scan line */}
+            <div
+              className="absolute inset-x-2 h-0.5 bg-brand opacity-90 rounded"
+              style={{ animation: "scanLine 1.8s ease-in-out infinite" }}
+            />
+          </div>
         </div>
+      </div>
+      {/* Format hint */}
+      <div className="absolute bottom-4 inset-x-0 flex justify-center pointer-events-none">
+        <span className="bg-black/60 text-gray-300 text-xs px-3 py-1 rounded-full">
+          Barcodes &amp; QR codes
+        </span>
       </div>
       <style>{`
         @keyframes scanLine {
-          0%   { top: 8px;  opacity: 0.9; }
-          45%  { top: calc(100% - 12px); opacity: 0.9; }
-          50%  { top: calc(100% - 12px); opacity: 0; }
-          55%  { top: 8px;  opacity: 0; }
-          60%  { top: 8px;  opacity: 0.9; }
-          100% { top: 8px;  opacity: 0.9; }
+          0%   { top: 6px;  opacity: 0.9; }
+          45%  { top: calc(100% - 10px); opacity: 0.9; }
+          50%  { top: calc(100% - 10px); opacity: 0; }
+          55%  { top: 6px;  opacity: 0; }
+          60%  { top: 6px;  opacity: 0.9; }
+          100% { top: 6px;  opacity: 0.9; }
         }
       `}</style>
     </div>
