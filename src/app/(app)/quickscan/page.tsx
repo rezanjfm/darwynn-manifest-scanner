@@ -116,36 +116,16 @@ function QuickScanInner() {
     };
   }, []);
 
-  // ── Get or create manifest for a carrier + direction ─────────────────────────
-  const getOrCreateManifest = useCallback(
+  // ── Create manifest for a carrier + direction (one per session, cached) ──────
+  // Each quickscan session = fresh manifests. We never reuse one from a prior session
+  // so every truck handoff is a distinct record (per carrier · date · time · user).
+  const createManifest = useCallback(
     async (carrierId: string, dir: "outbound" | "inbound"): Promise<string | null> => {
       const key = `${carrierId}:${dir}`;
+      // Already created in this session — reuse within the session
       if (manifestCacheRef.current.has(key)) return manifestCacheRef.current.get(key)!;
 
       const today = format(new Date(), "yyyy-MM-dd");
-
-      // Reuse existing open manifest for this carrier + direction today
-      const { data: existing } = await supabase
-        .from("manifests")
-        .select("id")
-        .eq("carrier_id", carrierId)
-        .eq("date",       today)
-        .eq("direction",  dir)
-        .eq("status",     "open")
-        .maybeSingle();
-
-      if (existing) {
-        manifestCacheRef.current.set(key, existing.id);
-        // Pre-load seen tracking numbers to deduplicate correctly
-        const { data: parcels } = await supabase
-          .from("parcels")
-          .select("tracking_number")
-          .eq("manifest_id", existing.id);
-        parcels?.forEach(p => seenRef.current.add(p.tracking_number));
-        return existing.id;
-      }
-
-      // Create a new manifest
       const { data: newM } = await supabase
         .from("manifests")
         .insert({ carrier_id: carrierId, date: today, direction: dir, opened_by: userId })
@@ -176,7 +156,7 @@ function QuickScanInner() {
         return;
       }
 
-      const manifestId = await getOrCreateManifest(carrierId, dir);
+      const manifestId = await createManifest(carrierId, dir);
       if (!manifestId) return;
 
       seenRef.current.add(tracking);
@@ -210,7 +190,7 @@ function QuickScanInner() {
         await queueScan({ ...record, synced: false });
       }
     },
-    [userId, getOrCreateManifest, isOnline, supabase]
+    [userId, createManifest, isOnline, supabase]
   );
 
   // ── Handle a scan ─────────────────────────────────────────────────────────────
