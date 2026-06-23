@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
 import { detectCarrier, extractTrackingNumber } from "@/lib/carriers";
-import { queueScan, markScanSynced } from "@/lib/offline-queue";
+import { queueScan, getPendingScans, markScanSynced } from "@/lib/offline-queue";
 import ScanFeedback, { FeedbackState } from "@/components/ScanFeedback";
 import ManualEntryModal from "@/components/ManualEntryModal";
 import { Carrier } from "@/types";
@@ -115,6 +115,27 @@ function QuickScanInner() {
       window.removeEventListener("offline", off);
     };
   }, []);
+
+  // ── Flush offline queue on reconnect ─────────────────────────────────────────
+  useEffect(() => {
+    if (!isOnline || !userId) return;
+    (async () => {
+      const pending = await getPendingScans();
+      for (const scan of pending) {
+        const { error } = await supabase.from("parcels").insert({
+          id:              scan.id,
+          manifest_id:     scan.manifest_id,
+          carrier_id:      scan.carrier_id,
+          tracking_number: scan.tracking_number,
+          raw_barcode:     scan.raw_barcode,
+          entry_method:    scan.entry_method,
+          scanned_by:      scan.scanned_by,
+          scanned_at:      scan.scanned_at,
+        });
+        if (!error) await markScanSynced(scan.id);
+      }
+    })();
+  }, [isOnline, userId, supabase]);
 
   // ── Create manifest for a carrier + direction (one per session, cached) ──────
   // Each quickscan session = fresh manifests. We never reuse one from a prior session

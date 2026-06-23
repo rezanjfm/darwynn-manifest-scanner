@@ -259,7 +259,7 @@ export default function AdminPage() {
       if (!res.ok) { setInviteError(body.error ?? "Failed to send invite"); }
       else {
         setInviteSuccess(`Invite sent to ${inviteEmail.trim()}`);
-        setInviteEmail(""); setInviteName(""); setInviteRole("associate");
+        setInviteEmail(""); setInviteName(""); setInviteRole("manager");
         const refreshed = await fetch("/api/admin/users");
         if (refreshed.ok) setUsers(await refreshed.json() as UserProfile[]);
       }

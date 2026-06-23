@@ -229,7 +229,7 @@ export default function ScanPage() {
       });
       if (!error) await markScanSynced(scanId);
     }
-  }, [manifest, carrier, userId, userRole, allCarriers, manifestId, isOnline, supabase]);
+  }, [manifest, carrier, userId, allCarriers, manifestId, isOnline, supabase]);
 
   // --- Void a scan (manager only) ---
   const voidScan = useCallback(async (scanId: string, trackingNumber: string) => {
