@@ -254,18 +254,24 @@ export default function AdminPage() {
     <div className="min-h-screen bg-gray-950 text-white">
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-40 bg-gray-950/95 backdrop-blur border-b border-white/5">
-        <div className="max-w-5xl mx-auto px-4 pt-4 pb-0 safe-top">
-          <div className="flex items-center justify-between mb-4">
+      <header className="sticky top-0 z-40 bg-gray-950/90 backdrop-blur-md border-b border-white/5">
+        <div className="max-w-5xl mx-auto px-4 pb-0 safe-top">
+          <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center font-black text-sm shadow-lg shadow-purple-900/40">A</div>
+              <button
+                onClick={() => router.push("/manifests")}
+                className="w-8 h-8 rounded-lg bg-white/5 border border-white/8 flex items-center justify-center text-gray-400 hover:text-white flex-none transition-colors"
+              >
+                ←
+              </button>
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center font-black text-xs shadow-lg shadow-purple-900/40 flex-none">A</div>
               <div>
-                <h1 className="font-bold text-base leading-none">Admin Panel</h1>
-                <p className="text-xs text-purple-400 mt-0.5">Darwynn Logistics</p>
+                <h1 className="font-bold text-sm leading-none text-white">Admin Panel</h1>
+                <p className="text-[11px] text-purple-400/80 mt-0.5">Darwynn Logistics</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded-lg px-2.5 py-1.5">
+              <div className="flex items-center gap-1.5 bg-white/5 border border-white/8 rounded-xl px-3 py-2">
                 <input
                   type="date"
                   value={date}
@@ -276,18 +282,17 @@ export default function AdminPage() {
                   <span className="text-[10px] bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded-full leading-none font-semibold">Live</span>
                 )}
               </div>
-              <button onClick={() => router.push("/manifests")} className="text-xs text-gray-300 hover:text-white px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 transition-colors font-semibold">
-                ← Manifests
-              </button>
             </div>
           </div>
 
           {/* Tab bar */}
-          <div className="flex gap-0">
+          <div className="flex -mb-px">
             {TABS.map(t => (
               <button key={t} onClick={() => setTab(t)}
-                className={`px-5 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
-                  tab === t ? "border-purple-500 text-white" : "border-transparent text-gray-500 hover:text-gray-300"
+                className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all ${
+                  tab === t
+                    ? "border-purple-500 text-white"
+                    : "border-transparent text-gray-600 hover:text-gray-400 hover:border-gray-700"
                 }`}
               >
                 {TAB_LABEL[t]}
@@ -318,7 +323,7 @@ export default function AdminPage() {
                 { label: "Manual pkgs", value: manualCount },
                 { label: "Scan pkgs",   value: totalPackages - manualCount },
               ].map(({ label, value }) => (
-                <div key={label} className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-3 text-center">
+                <div key={label} className="glass rounded-xl p-3 text-center">
                   <div className="text-lg font-black text-gray-200">{dashLoading ? "…" : value}</div>
                   <div className="text-xs text-gray-500 mt-0.5">{label}</div>
                 </div>
@@ -358,7 +363,7 @@ export default function AdminPage() {
 
             {!dashLoading && parcels.length > 0 && (
               <Section title="Hourly Throughput">
-                <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
+                <div className="glass rounded-2xl p-5">
                   <div className="flex items-end gap-[3px] h-32">
                     {hourlyData.slice(5, 23).map((count, i) => {
                       const hour = i + 5;
@@ -383,7 +388,7 @@ export default function AdminPage() {
 
             {!dashLoading && carrierStats.length > 0 && (
               <Section title="Carrier Volume">
-                <div className="bg-gray-900/60 border border-gray-800 rounded-xl divide-y divide-gray-800/60">
+                <div className="glass rounded-2xl divide-y divide-white/5">
                   {carrierStats.map(c => {
                     const total  = c.outbound + c.inbound;
                     const outPct = (c.outbound / maxCarrierVol) * 100;
@@ -446,7 +451,7 @@ export default function AdminPage() {
             </div>
 
             <Section title="Performance Leaderboard">
-              <div className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+              <div className="glass rounded-2xl overflow-hidden">
                 {kpiLoading ? (
                   <div className="text-center py-14 text-gray-500 animate-pulse">Loading…</div>
                 ) : kpi.length === 0 ? (
@@ -523,7 +528,7 @@ export default function AdminPage() {
 
                             {/* Expanded: individual scans */}
                             {isExpanded && (
-                              <div className="bg-gray-950/80 border-t border-gray-800/60 px-5 py-3">
+                              <div className="bg-gray-950/60 border-t border-white/5 px-5 py-3">
                                 <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">
                                   Scans by {row.full_name ?? row.email} on {format(new Date(date + "T12:00:00"), "MMM d")}
                                 </div>
@@ -564,7 +569,7 @@ export default function AdminPage() {
             </Section>
 
             {!kpiLoading && kpi.length > 0 && (
-              <div className="bg-indigo-950/40 border border-indigo-800/30 rounded-xl p-5">
+              <div className="glass rounded-2xl p-5 border border-purple-500/10">
                 <div className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-3">Shift Summary</div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
                   {[
@@ -607,7 +612,7 @@ export default function AdminPage() {
                     const inPct  = (c.inbound  / maxCarrierVol) * 100;
                     const mfForCarrier = manifests.filter(m => m.carrier_id === c.id);
                     return (
-                      <div key={c.id} className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
+                      <div key={c.id} className="glass rounded-2xl p-5">
                         <div className="flex items-start justify-between mb-4">
                           <div>
                             <div className="flex items-center gap-2">
@@ -676,43 +681,44 @@ export default function AdminPage() {
         {tab === "users" && (
           <>
             {/* Invite form */}
-            <div className="bg-gray-900/60 border border-purple-800/40 rounded-xl p-5">
+            <div className="glass rounded-2xl p-5 border border-purple-500/15">
               <h3 className="text-sm font-bold text-purple-300 mb-4">Invite New User</h3>
               <form onSubmit={inviteUser} className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
                     type="email" placeholder="Email address" value={inviteEmail}
                     onChange={e => setInviteEmail(e.target.value)} required
-                    className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500 w-full"
+                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 placeholder-gray-600 w-full transition-colors"
                   />
                   <input
                     type="text" placeholder="Full name (optional)" value={inviteName}
                     onChange={e => setInviteName(e.target.value)}
-                    className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500 w-full"
+                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 placeholder-gray-600 w-full transition-colors"
                   />
                 </div>
                 <div className="flex items-center gap-3">
                   <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
-                    className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500"
+                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 [color-scheme:dark]"
                   >
                     <option value="associate">Associate</option>
                     <option value="manager">Manager</option>
                     <option value="admin">Admin</option>
                   </select>
                   <button type="submit" disabled={inviting || !inviteEmail.trim()}
-                    className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                    className="disabled:opacity-40 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.97]"
+                    style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}
                   >
                     {inviting ? "Sending…" : "Send Invite"}
                   </button>
                 </div>
                 {inviteSuccess && (
-                  <div className="bg-green-900/40 border border-green-700/50 text-green-300 rounded-lg px-3 py-2 text-sm flex items-center justify-between">
+                  <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
                     <span>✓ {inviteSuccess}</span>
                     <button type="button" onClick={() => setInviteSuccess(null)} className="text-green-500 text-lg leading-none">×</button>
                   </div>
                 )}
                 {inviteError && (
-                  <div className="bg-red-900/40 border border-red-700/50 text-red-300 rounded-lg px-3 py-2 text-sm flex items-center justify-between">
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
                     <span>⚠ {inviteError}</span>
                     <button type="button" onClick={() => setInviteError(null)} className="text-red-500 text-lg leading-none">×</button>
                   </div>
@@ -721,7 +727,7 @@ export default function AdminPage() {
             </div>
 
             {saveError && (
-              <div className="bg-red-900/60 border border-red-700 text-red-300 rounded-xl px-4 py-3 text-sm flex items-center justify-between">
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-4 py-3 text-sm flex items-center justify-between">
                 <span>⚠ {saveError}</span>
                 <button onClick={() => setSaveError(null)} className="text-red-400 text-lg leading-none">×</button>
               </div>
@@ -744,7 +750,7 @@ export default function AdminPage() {
                 const initial     = (u.full_name ?? u.email ?? "?")[0].toUpperCase();
                 const assignedMgr = managers.find(m => m.id === u.manager_id);
                 return (
-                  <div key={u.id} className="bg-gray-900/60 border border-gray-800 hover:border-gray-700 rounded-xl p-4 transition-colors">
+                  <div key={u.id} className="glass rounded-2xl p-4 hover:bg-white/[0.04] transition-colors">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-none ${ROLE_CHIP[u.role] ?? "bg-gray-700 text-gray-300"}`}>{initial}</div>
                       <div className="flex-1 min-w-0">
@@ -760,7 +766,7 @@ export default function AdminPage() {
                           <select
                             value={pendingMgr ?? ""}
                             onChange={e => setMgEdits(prev => ({ ...prev, [u.id]: e.target.value || null }))}
-                            className="bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-blue-500 transition-colors max-w-[130px]"
+                            className="bg-white/5 border border-white/10 text-white rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-brand/50 transition-colors max-w-[130px] [color-scheme:dark]"
                           >
                             <option value="">No manager</option>
                             {managers.filter(m => m.id !== u.id).map(m => (
@@ -771,7 +777,7 @@ export default function AdminPage() {
                         <select
                           value={pendingRole}
                           onChange={e => setRoleEdits(prev => ({ ...prev, [u.id]: e.target.value }))}
-                          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500 transition-colors"
+                          className="bg-white/5 border border-white/10 text-white rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500/60 transition-colors [color-scheme:dark]"
                         >
                           <option value="associate">Associate</option>
                           <option value="manager">Manager</option>
@@ -780,7 +786,8 @@ export default function AdminPage() {
                         <button
                           onClick={() => saveUser(u.id)}
                           disabled={!isDirty || saving === u.id}
-                          className="bg-purple-600 hover:bg-purple-500 disabled:opacity-25 text-white px-3 py-1.5 rounded-lg text-sm font-semibold min-w-[52px] transition-colors"
+                          className="disabled:opacity-25 text-white px-3 py-1.5 rounded-lg text-sm font-semibold min-w-[52px] transition-all active:scale-[0.97]"
+                          style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}
                         >
                           {saving === u.id ? "…" : "Save"}
                         </button>
@@ -808,10 +815,10 @@ function KpiCard({ value, label, color, sub }: {
 }) {
   const textColor = { purple: "text-purple-400", blue: "text-blue-400", orange: "text-orange-400", green: "text-emerald-400", red: "text-red-400", yellow: "text-yellow-400" }[color];
   return (
-    <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
-      <div className={`text-3xl sm:text-4xl font-black tracking-tight ${textColor}`}>{value}</div>
-      <div className="text-xs text-gray-400 font-medium mt-1">{label}</div>
-      {sub && <div className="text-xs text-gray-600 mt-0.5">{sub}</div>}
+    <div className="glass rounded-2xl p-5">
+      <div className={`text-3xl sm:text-4xl font-black tracking-tight tabular-nums ${textColor}`}>{value}</div>
+      <div className="text-xs text-gray-400 font-medium mt-1 leading-tight">{label}</div>
+      {sub && <div className="text-[11px] text-gray-600 mt-0.5">{sub}</div>}
     </div>
   );
 }

@@ -33,9 +33,9 @@
 }
 
 @layer utilities {
-  /* Safe-area helpers */
-  .safe-top    { padding-top:    env(safe-area-inset-top);    }
-  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  /* Safe-area helpers — max() ensures minimum padding even on non-notched devices */
+  .safe-top    { padding-top:    max(env(safe-area-inset-top), 1.25rem); }
+  .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 0.5rem); }
 
   /* Glass surfaces */
   .glass {

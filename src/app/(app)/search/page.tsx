@@ -78,7 +78,7 @@ export default function SearchPage() {
       </div>
 
       {/* Header */}
-      <header className="relative z-10 px-4 pt-5 pb-4 safe-top border-b border-white/5">
+      <header className="relative z-10 px-4 pb-4 safe-top border-b border-white/5">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <button
             onClick={() => router.push("/manifests")}

@@ -102,7 +102,7 @@ export default function ManifestsPage() {
       </div>
 
       {/* Header */}
-      <header className="relative z-10 px-5 pt-5 pb-4 safe-top">
+      <header className="relative z-10 px-5 pb-4 safe-top">
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <Logo variant="dark" height="h-8" />
           <div className="flex gap-2">

@@ -331,7 +331,7 @@ export default function ScanPage() {
     <div className="h-screen flex flex-col bg-gray-950 overflow-hidden">
 
       {/* ── Top bar ── */}
-      <div className={`flex-none text-white px-4 py-3 safe-top border-b ${
+      <div className={`flex-none text-white px-4 pb-3 safe-top border-b ${
         isInbound ? "bg-orange-950/80 border-orange-900/50" : "bg-gray-900/80 border-white/5"
       } backdrop-blur-sm`}>
         <div className="flex items-center gap-3">
