@@ -1,4 +1,4 @@
-export type Role = "worker" | "manager";
+export type Role = "worker" | "manager" | "admin";
 
 export interface UserProfile {
   id: string;
@@ -30,6 +30,7 @@ export interface Manifest {
   opened_at: string;
   closed_at: string | null;
   parcel_count: number;
+  direction: "outbound" | "inbound";
   notes: string | null;
   created_at: string;
   updated_at: string;

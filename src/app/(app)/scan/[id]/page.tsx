@@ -52,7 +52,7 @@ export default function ScanPage() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [syncing, setSyncing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<"worker" | "manager">("worker");
+  const [userRole, setUserRole] = useState<"worker" | "manager" | "admin">("worker");
   const [loading, setLoading] = useState(true);
 
   const seenRef = useRef<Set<string>>(new Set());
@@ -82,7 +82,7 @@ export default function ScanPage() {
           .limit(100),
       ]);
 
-      if (profile) setUserRole(profile.role as "worker" | "manager");
+      if (profile) setUserRole(profile.role as "worker" | "manager" | "admin");
       if (!mfData) { router.push("/manifests"); return; }
       setManifest(mfData as unknown as Manifest);
       setCarrier((mfData as unknown as { carrier: Carrier }).carrier);
@@ -182,7 +182,7 @@ export default function ScanPage() {
   // --- Handle a scan (from camera or manual entry) ---
   const handleScan = useCallback(async (rawBarcode: string, entryMethod: "scan" | "manual" = "scan") => {
     if (!manifest || !carrier || !userId) return;
-    if (manifest.status === "closed" && userRole !== "manager") return;
+    if (manifest.status === "closed" && userRole === "worker") return;
 
     const tracking = extractTrackingNumber(rawBarcode);
 
@@ -352,6 +352,11 @@ export default function ScanPage() {
 
         {/* Status indicators */}
         <div className="flex items-center gap-2 mt-2">
+          {manifest.direction === "inbound" && (
+            <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full font-semibold">
+              ↩ INBOUND RETURN
+            </span>
+          )}
           {!isOnline && (
             <span className="bg-yellow-600 text-yellow-100 text-xs px-2 py-0.5 rounded-full font-semibold">
               OFFLINE — queuing scans
@@ -385,7 +390,7 @@ export default function ScanPage() {
             >
               Export CSV
             </button>
-            {userRole === "manager" && (
+            {userRole !== "worker" && (
               <button
                 onClick={async () => {
                   await supabase.from("manifests").update({ status: "open", closed_at: null, closed_by: null }).eq("id", manifestId);
@@ -414,7 +419,7 @@ export default function ScanPage() {
               </span>
               <span className="font-mono text-sm text-white flex-1 truncate">{p.tracking_number}</span>
               <span className="text-gray-500 text-xs flex-none">{timeAgo(p.scanned_at)}</span>
-              {userRole === "manager" && (
+              {userRole !== "worker" && (
                 <button
                   onClick={() => voidScan(p.id, p.tracking_number)}
                   className="text-red-400 text-xs flex-none px-1.5 py-0.5 rounded hover:bg-red-900/50 transition-colors"
