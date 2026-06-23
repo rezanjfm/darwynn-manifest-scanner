@@ -234,18 +234,13 @@ export default function ManifestsPage() {
                               {m.opener_name && <span className="text-gray-600"> · {m.opener_name}</span>}
                             </div>
                           </div>
-                          <div className="flex-none flex flex-col items-end gap-1.5">
+                          <div className="flex-none flex flex-col items-end gap-2">
                             <div className={`text-2xl font-black tabular-nums leading-none ${isIn ? "text-orange-400" : "text-brand"}`}>
                               {m.parcel_count}
                             </div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              isClosed
-                                ? "bg-gray-700/60 text-gray-400"
-                                : "bg-green-500/15 text-green-400 flex items-center gap-1"
-                            }`}>
-                              {!isClosed && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />}
-                              {isClosed ? "CLOSED" : "OPEN"}
-                            </span>
+                            {!isClosed && (
+                              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                            )}
                           </div>
                         </div>
                       </button>
