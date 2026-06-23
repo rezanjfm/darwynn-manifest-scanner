@@ -200,23 +200,14 @@ function QuickScanInner() {
         entry_method:    entryMethod,
         scanned_by:      userId,
         scanned_at:      now,
-        synced:          false,
       };
 
-      await queueScan(record);
-
       if (isOnline) {
-        const { error } = await supabase.from("parcels").insert({
-          id:              record.id,
-          manifest_id:     record.manifest_id,
-          carrier_id:      record.carrier_id,
-          tracking_number: record.tracking_number,
-          raw_barcode:     record.raw_barcode,
-          entry_method:    record.entry_method,
-          scanned_by:      record.scanned_by,
-          scanned_at:      record.scanned_at,
-        });
-        if (!error) await markScanSynced(scanId);
+        // Direct write — no intermediate queue
+        await supabase.from("parcels").insert(record);
+      } else {
+        // Offline — queue to IndexedDB, sync when back online
+        await queueScan({ ...record, synced: false });
       }
     },
     [userId, getOrCreateManifest, isOnline, supabase]

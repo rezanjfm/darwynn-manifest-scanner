@@ -48,7 +48,6 @@ export default function ScanPage() {
   const [scannedList, setScannedList] = useState<ScanItem[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [showManual, setShowManual] = useState(false);
-  const [showClose, setShowClose] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [syncing, setSyncing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -59,9 +58,8 @@ export default function ScanPage() {
   // Tracks IDs deleted optimistically so the realtime DELETE event doesn't double-decrement
   const pendingDeletesRef = useRef<Set<string>>(new Set());
 
-  // Derived before hooks so the keyboard wedge effect can depend on it.
-  // False while loading (manifest is null), false when closed or a modal is open.
-  const scannerActive = !!manifest && manifest.status !== "closed" && !showManual && !showClose;
+  // False while loading, closed, or manual entry modal is open
+  const scannerActive = !!manifest && manifest.status !== "closed" && !showManual;
 
   // --- Load manifest, carriers, and parcel history ---
   useEffect(() => {
@@ -305,7 +303,6 @@ export default function ScanPage() {
       .eq("id", manifestId);
     if (error) { alert(error.message); return; }
     setManifest((m) => m ? { ...m, status: "closed" } : m);
-    setShowClose(false);
     router.push("/manifests");
   }
 
@@ -456,7 +453,7 @@ export default function ScanPage() {
             CSV
           </button>
           <button
-            onClick={() => setShowClose(true)}
+            onClick={closeManifest}
             className="flex-1 bg-red-800 text-white py-3 rounded-xl font-bold text-sm"
           >
             Close
@@ -472,26 +469,7 @@ export default function ScanPage() {
         />
       )}
 
-      {/* Close confirmation */}
-      {showClose && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 animate-slide-up">
-            <h2 className="text-xl font-bold mb-2">Close Manifest?</h2>
-            <p className="text-gray-600 mb-1">
-              {manifest.parcel_count} parcel{manifest.parcel_count !== 1 ? "s" : ""} will be locked.
-            </p>
-            <p className="text-sm text-gray-400 mb-5">This means the truck is gone. You can still export CSV after closing.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowClose(false)} className="flex-1 py-3 rounded-xl border-2 border-gray-200 font-semibold">
-                Cancel
-              </button>
-              <button onClick={closeManifest} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }
