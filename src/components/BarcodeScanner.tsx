@@ -19,19 +19,27 @@ export default function BarcodeScanner({ onScan, active, onCameraUnavailable }: 
   const lastResultRef   = useRef<string>("");
   const lastResultTimeRef = useRef<number>(0);
 
+  // Keep callbacks in refs so the camera useEffect never restarts when the
+  // parent re-renders (e.g. showing the duplicate/success feedback banner).
+  const onScanRef               = useRef(onScan);
+  const onCameraUnavailableRef  = useRef(onCameraUnavailable);
+  useEffect(() => { onScanRef.current = onScan; },              [onScan]);
+  useEffect(() => { onCameraUnavailableRef.current = onCameraUnavailable; }, [onCameraUnavailable]);
+
   const stopCamera = useCallback(() => {
     if (rafRef.current)  { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
     if (videoRef.current) videoRef.current.srcObject = null;
   }, []);
 
+  // Stable — no dependency on onScan so it never causes the effect to re-run
   const handleDetected = useCallback((value: string) => {
     const now = Date.now();
     if (value === lastResultRef.current && now - lastResultTimeRef.current < 2000) return;
     lastResultRef.current = value;
     lastResultTimeRef.current = now;
-    onScan(value);
-  }, [onScan]);
+    onScanRef.current(value);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startNativeDetector = useCallback(async (video: HTMLVideoElement) => {
     const BD = window.BarcodeDetector!;
@@ -108,13 +116,15 @@ export default function BarcodeScanner({ onScan, active, onCameraUnavailable }: 
           await startZXing(video);
         }
       } catch {
-        if (!cancelled) onCameraUnavailable?.();
+        if (!cancelled) onCameraUnavailableRef.current?.();
       }
     }
 
     init();
     return () => { cancelled = true; mountedRef.current = false; stopCamera(); };
-  }, [active, startNativeDetector, startZXing, stopCamera, onCameraUnavailable]);
+  // onCameraUnavailable intentionally omitted — accessed via ref to keep camera stable
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, startNativeDetector, startZXing, stopCamera]);
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden">
