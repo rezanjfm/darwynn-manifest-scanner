@@ -247,9 +247,9 @@ export default function AdminPage() {
               </div>
               <button
                 onClick={() => router.push("/manifests")}
-                className="text-xs text-gray-400 hover:text-white px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 hover:border-gray-700 transition-colors"
+                className="text-xs text-gray-300 hover:text-white px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 hover:border-gray-500 font-semibold transition-colors"
               >
-                ← Back
+                ← Manifests
               </button>
             </div>
           </div>

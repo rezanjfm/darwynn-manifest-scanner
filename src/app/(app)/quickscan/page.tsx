@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
@@ -34,7 +34,8 @@ type RecentScan = {
   method: "scan" | "manual";
 };
 
-export default function QuickScanPage() {
+// ── Inner component (needs Suspense because of useSearchParams) ───────────────
+function QuickScanInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
@@ -64,7 +65,7 @@ export default function QuickScanPage() {
 
   const scannerActive = !loading && !showManual && pendingBarcode === null;
 
-  // ── Auth + load carriers ────────────────────────────────────────────────────
+  // ── Auth + load carriers ──────────────────────────────────────────────────────
   useEffect(() => {
     async function init() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -77,7 +78,7 @@ export default function QuickScanPage() {
     init();
   }, [supabase, router]);
 
-  // ── Online / offline ─────────────────────────────────────────────────────────
+  // ── Online / offline ──────────────────────────────────────────────────────────
   useEffect(() => {
     const on = () => setIsOnline(true);
     const off = () => setIsOnline(false);
@@ -86,7 +87,7 @@ export default function QuickScanPage() {
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, []);
 
-  // ── Get or create manifest for a carrier+direction ──────────────────────────
+  // ── Get or create manifest ────────────────────────────────────────────────────
   const getOrCreateManifest = useCallback(
     async (carrierId: string, dir: "outbound" | "inbound"): Promise<string | null> => {
       const key = `${carrierId}:${dir}`;
@@ -105,7 +106,6 @@ export default function QuickScanPage() {
 
       if (existing) {
         manifestCacheRef.current.set(key, existing.id);
-        // Pre-load existing tracking numbers so duplicates are caught
         const { data: parcels } = await supabase
           .from("parcels")
           .select("tracking_number")
@@ -127,7 +127,7 @@ export default function QuickScanPage() {
     [supabase, userId]
   );
 
-  // ── Core save ────────────────────────────────────────────────────────────────
+  // ── Core save ─────────────────────────────────────────────────────────────────
   const saveScan = useCallback(
     async (
       rawBarcode: string,
@@ -190,7 +190,7 @@ export default function QuickScanPage() {
     [userId, getOrCreateManifest, isOnline, supabase]
   );
 
-  // ── Handle scan ──────────────────────────────────────────────────────────────
+  // ── Handle scan ───────────────────────────────────────────────────────────────
   const handleScan = useCallback(
     async (rawBarcode: string, entryMethod: "scan" | "manual" = "scan") => {
       const tracking = extractTrackingNumber(rawBarcode);
@@ -198,7 +198,7 @@ export default function QuickScanPage() {
 
       if (!detected) {
         if (activeCarrier) {
-          // Unknown barcode but we have context — assign to active carrier
+          // Unknown pattern but we have an active carrier — assign to it
           await saveScan(rawBarcode, activeCarrier.id, activeCarrier.name, entryMethod, direction);
         } else {
           // No context — ask worker to pick carrier
@@ -219,7 +219,7 @@ export default function QuickScanPage() {
     [carriers, activeCarrier, direction, saveScan]
   );
 
-  // ── Carrier picker (unknown barcode) ─────────────────────────────────────────
+  // ── Carrier picker (unknown barcode) ──────────────────────────────────────────
   async function assignCarrier(carrier: Carrier) {
     if (!pendingBarcode) return;
     const barcode = pendingBarcode;
@@ -228,7 +228,7 @@ export default function QuickScanPage() {
     await saveScan(barcode, carrier.id, carrier.name, "scan", direction);
   }
 
-  // ── HID keyboard wedge ───────────────────────────────────────────────────────
+  // ── HID keyboard wedge ────────────────────────────────────────────────────────
   const handleScanRef = useRef(handleScan);
   useEffect(() => { handleScanRef.current = handleScan; }, [handleScan]);
 
@@ -255,11 +255,9 @@ export default function QuickScanPage() {
     return () => { document.removeEventListener("keydown", onKeyDown); if (timer) clearTimeout(timer); };
   }, [scannerActive]);
 
-  // ── Direction toggle ─────────────────────────────────────────────────────────
   function toggleDirection() {
     const next = direction === "outbound" ? "inbound" : "outbound";
     setDirection(next);
-    // Flush manifest cache for the active carrier so it re-looks up for new direction
     if (activeCarrier) manifestCacheRef.current.delete(`${activeCarrier.id}:${direction}`);
   }
 
@@ -276,7 +274,7 @@ export default function QuickScanPage() {
   return (
     <div className="h-screen flex flex-col bg-black overflow-hidden">
 
-      {/* ── Top bar ── */}
+      {/* Top bar */}
       <div className={`flex-none text-white px-3 py-2 safe-top ${isInbound ? "bg-orange-900" : "bg-gray-900"}`}>
         <div className="flex items-center gap-2">
           <button
@@ -308,13 +306,9 @@ export default function QuickScanPage() {
             {isInbound ? "↩ RETURN" : "↑ OUTBOUND"}
           </button>
 
-          {/* Package count */}
+          {/* Count */}
           <div className="flex-none text-right">
-            <span
-              className={`text-3xl font-black tabular-nums leading-none ${
-                isInbound ? "text-orange-300" : "text-green-400"
-              }`}
-            >
+            <span className={`text-3xl font-black tabular-nums leading-none ${isInbound ? "text-orange-300" : "text-green-400"}`}>
               {sessionCount}
             </span>
           </div>
@@ -329,11 +323,10 @@ export default function QuickScanPage() {
         )}
       </div>
 
-      {/* ── Camera ── */}
+      {/* Camera */}
       <div className="flex-1 relative overflow-hidden min-h-0">
         <BarcodeScanner onScan={(v) => handleScan(v, "scan")} active={scannerActive} />
 
-        {/* Feedback strip */}
         {feedback && (
           <div className="absolute top-0 inset-x-0 z-30">
             <ScanFeedback feedback={feedback} onDismiss={() => setFeedback(null)} />
@@ -346,9 +339,7 @@ export default function QuickScanPage() {
             <div className="bg-black/70 rounded-2xl px-8 py-6 text-center">
               <div className="text-5xl mb-3">📦</div>
               <div className="text-white font-bold text-lg">Scan any package</div>
-              <div className="text-gray-400 text-sm mt-1">
-                Carrier is detected automatically
-              </div>
+              <div className="text-gray-400 text-sm mt-1">Carrier detected automatically</div>
               <div className="text-gray-600 text-xs mt-3">
                 {isInbound ? "↩ Receiving returns mode" : "↑ Outbound mode"}
               </div>
@@ -360,17 +351,10 @@ export default function QuickScanPage() {
         {recentScans.length > 0 && (
           <div className="absolute bottom-0 inset-x-0 z-20 bg-black/80 backdrop-blur-sm">
             {recentScans.slice(0, 4).map((s) => (
-              <div
-                key={s.id}
-                className="flex items-center gap-2 px-3 py-1.5 border-t border-white/10 first:border-0"
-              >
-                <span
-                  className={`w-4 h-4 flex-none flex items-center justify-center text-[10px] rounded font-bold ${
-                    s.method === "manual"
-                      ? "bg-yellow-700 text-yellow-200"
-                      : "bg-green-800 text-green-300"
-                  }`}
-                >
+              <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 border-t border-white/10 first:border-0">
+                <span className={`w-4 h-4 flex-none flex items-center justify-center text-[10px] rounded font-bold ${
+                  s.method === "manual" ? "bg-yellow-700 text-yellow-200" : "bg-green-800 text-green-300"
+                }`}>
                   {s.method === "manual" ? "M" : "S"}
                 </span>
                 <span className="font-mono text-xs text-white flex-1 truncate">{s.tracking}</span>
@@ -381,12 +365,8 @@ export default function QuickScanPage() {
         )}
       </div>
 
-      {/* ── Bottom bar ── */}
-      <div
-        className={`flex-none px-3 py-2 safe-bottom flex gap-2 ${
-          isInbound ? "bg-orange-950" : "bg-gray-900"
-        }`}
-      >
+      {/* Bottom bar */}
+      <div className={`flex-none px-3 py-2 safe-bottom flex gap-2 ${isInbound ? "bg-orange-950" : "bg-gray-900"}`}>
         <button
           onClick={() => setShowManual(true)}
           className="flex-1 bg-gray-700 text-white py-3 rounded-xl font-semibold text-sm"
@@ -401,7 +381,6 @@ export default function QuickScanPage() {
         </button>
       </div>
 
-      {/* Manual entry modal */}
       {showManual && (
         <ManualEntryModal
           onSubmit={(v) => { setShowManual(false); handleScan(v, "manual"); }}
@@ -409,7 +388,7 @@ export default function QuickScanPage() {
         />
       )}
 
-      {/* Carrier picker — shown when barcode doesn't match any pattern */}
+      {/* Carrier picker */}
       {pendingBarcode !== null && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-end">
           <div className="bg-gray-900 w-full rounded-t-2xl p-5 space-y-4">
@@ -440,5 +419,18 @@ export default function QuickScanPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Exported page — Suspense required for useSearchParams ─────────────────────
+export default function QuickScanPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-white animate-pulse">Loading…</div>
+      </div>
+    }>
+      <QuickScanInner />
+    </Suspense>
   );
 }

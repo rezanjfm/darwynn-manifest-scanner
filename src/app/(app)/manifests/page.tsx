@@ -70,14 +70,17 @@ export default function ManifestsPage() {
             <button onClick={() => router.push("/search")} className="text-sm bg-white/20 px-3 py-1.5 rounded-lg">
               Search
             </button>
-            {isElevated && (
+            {isElevated && userRole !== "admin" && (
               <button onClick={() => router.push("/manager")} className="text-sm bg-white/20 px-3 py-1.5 rounded-lg">
                 Dashboard
               </button>
             )}
             {userRole === "admin" && (
-              <button onClick={() => router.push("/admin")} className="text-sm bg-purple-600/80 px-3 py-1.5 rounded-lg font-semibold">
-                Admin
+              <button
+                onClick={() => router.push("/admin")}
+                className="text-sm bg-purple-500 hover:bg-purple-400 text-white px-4 py-1.5 rounded-lg font-bold shadow-lg shadow-purple-900/40"
+              >
+                ⚙ Admin Panel
               </button>
             )}
             <button onClick={signOut} className="text-sm bg-white/20 px-3 py-1.5 rounded-lg">
