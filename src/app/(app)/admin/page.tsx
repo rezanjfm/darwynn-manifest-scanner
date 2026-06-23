@@ -70,6 +70,14 @@ export default function AdminPage() {
   const [saving, setSaving]       = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Invite form
+  const [inviteEmail, setInviteEmail]     = useState("");
+  const [inviteName, setInviteName]       = useState("");
+  const [inviteRole, setInviteRole]       = useState("worker");
+  const [inviting, setInviting]           = useState(false);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+  const [inviteError, setInviteError]     = useState<string | null>(null);
+
   const [kpi, setKpi]               = useState<KpiRow[]>([]);
   const [kpiLoading, setKpiLoading] = useState(false);
 
@@ -180,6 +188,36 @@ export default function AdminPage() {
   const topTotal = Math.max(...kpi.map(r => Number(r.outbound_scans) + Number(r.inbound_scans)), 1);
 
   const isToday = date === format(new Date(), "yyyy-MM-dd");
+
+  // ── Invite new user ──────────────────────────────────────────────────────────
+  async function inviteUser(e: React.FormEvent) {
+    e.preventDefault();
+    setInviting(true);
+    setInviteError(null);
+    setInviteSuccess(null);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inviteEmail.trim(), full_name: inviteName.trim(), role: inviteRole }),
+      });
+      const body = await res.json() as { error?: string; userId?: string };
+      if (!res.ok) {
+        setInviteError(body.error ?? "Failed to send invite");
+      } else {
+        setInviteSuccess(`Invite sent to ${inviteEmail.trim()}`);
+        setInviteEmail("");
+        setInviteName("");
+        setInviteRole("worker");
+        // Refresh user list
+        const refreshed = await fetch("/api/admin/users");
+        if (refreshed.ok) setUsers(await refreshed.json() as UserProfile[]);
+      }
+    } catch {
+      setInviteError("Network error — please try again");
+    }
+    setInviting(false);
+  }
 
   // ── Role save (server-side, bypasses RLS) ────────────────────────────────────
   async function saveRole(userId: string) {
@@ -744,6 +782,60 @@ export default function AdminPage() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {tab === "users" && (
           <>
+            {/* ── Invite form ── */}
+            <div className="bg-gray-900/60 border border-purple-800/40 rounded-xl p-4">
+              <h3 className="text-sm font-bold text-purple-300 mb-3">Invite New User</h3>
+              <form onSubmit={inviteUser} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="email"
+                    placeholder="Email address"
+                    value={inviteEmail}
+                    onChange={e => setInviteEmail(e.target.value)}
+                    required
+                    className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500 w-full"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Full name (optional)"
+                    value={inviteName}
+                    onChange={e => setInviteName(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500 w-full"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={inviteRole}
+                    onChange={e => setInviteRole(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="worker">Worker</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={inviting || !inviteEmail.trim()}
+                    className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    {inviting ? "Sending…" : "Send Invite"}
+                  </button>
+                </div>
+                {inviteSuccess && (
+                  <div className="bg-green-900/40 border border-green-700/50 text-green-300 rounded-lg px-3 py-2 text-sm flex items-center justify-between">
+                    <span>✓ {inviteSuccess}</span>
+                    <button type="button" onClick={() => setInviteSuccess(null)} className="text-green-500">×</button>
+                  </div>
+                )}
+                {inviteError && (
+                  <div className="bg-red-900/40 border border-red-700/50 text-red-300 rounded-lg px-3 py-2 text-sm flex items-center justify-between">
+                    <span>⚠ {inviteError}</span>
+                    <button type="button" onClick={() => setInviteError(null)} className="text-red-500">×</button>
+                  </div>
+                )}
+              </form>
+            </div>
+
             {saveError && (
               <div className="bg-red-900/60 border border-red-700 text-red-300 rounded-xl px-4 py-3 text-sm flex items-center justify-between">
                 <span>⚠ {saveError}</span>

@@ -36,6 +36,43 @@ export async function GET() {
   return NextResponse.json(data);
 }
 
+// POST /api/admin/users  { email, full_name, role }  → invite a new user
+export async function POST(req: NextRequest) {
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  const body = await req.json() as { email?: string; full_name?: string; role?: string };
+  const { email, full_name, role = "worker" } = body;
+  if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
+  if (!["worker", "manager", "admin"].includes(role)) {
+    return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+  }
+
+  const svc = service();
+
+  // Send invite email — creates the auth.users row immediately
+  const { data: inviteData, error: inviteError } = await svc.auth.admin.inviteUserByEmail(email, {
+    data: { full_name: full_name ?? "" },
+  });
+  if (inviteError) {
+    return NextResponse.json({ error: inviteError.message }, { status: 400 });
+  }
+
+  const userId = inviteData.user.id;
+
+  // Upsert user_profiles (handles both: trigger already ran, or trigger didn't run)
+  await svc.from("user_profiles").upsert({
+    id:         userId,
+    email,
+    full_name:  full_name ?? "",
+    role,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "id" });
+
+  return NextResponse.json({ ok: true, userId });
+}
+
 // PATCH /api/admin/users  { userId, role }
 export async function PATCH(req: NextRequest) {
   if (!(await requireAdmin())) {
