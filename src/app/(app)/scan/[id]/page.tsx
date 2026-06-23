@@ -51,7 +51,7 @@ export default function ScanPage() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [syncing, setSyncing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<"worker" | "manager" | "admin">("worker");
+  const [userRole, setUserRole] = useState<"associate" | "manager" | "admin">("associate");
   const [loading, setLoading] = useState(true);
 
   const seenRef = useRef<Set<string>>(new Set());
@@ -80,7 +80,7 @@ export default function ScanPage() {
           .limit(100),
       ]);
 
-      if (profile) setUserRole(profile.role as "worker" | "manager" | "admin");
+      if (profile) setUserRole(profile.role as "associate" | "manager" | "admin");
       if (!mfData) { router.push("/manifests"); return; }
       setManifest(mfData as unknown as Manifest);
       setCarrier((mfData as unknown as { carrier: Carrier }).carrier);
@@ -180,7 +180,7 @@ export default function ScanPage() {
   // --- Handle a scan (from camera or manual entry) ---
   const handleScan = useCallback(async (rawBarcode: string, entryMethod: "scan" | "manual" = "scan") => {
     if (!manifest || !carrier || !userId) return;
-    if (manifest.status === "closed" && userRole === "worker") return;
+    if (manifest.status === "closed" && userRole === "associate") return;
 
     const tracking = extractTrackingNumber(rawBarcode);
 
@@ -394,7 +394,7 @@ export default function ScanPage() {
                 </span>
                 <span className="font-mono text-xs text-white flex-1 truncate">{p.tracking_number}</span>
                 <span className="text-gray-400 text-xs flex-none">{timeAgo(p.scanned_at)}</span>
-                {userRole !== "worker" && (
+                {userRole !== "associate" && (
                   <button
                     onClick={() => voidScan(p.id, p.tracking_number)}
                     className="text-red-400 text-[11px] flex-none px-1 py-0.5 rounded active:bg-red-900/50"
@@ -420,7 +420,7 @@ export default function ScanPage() {
             >
               Export CSV
             </button>
-            {userRole !== "worker" && (
+            {userRole !== "associate" && (
               <button
                 onClick={async () => {
                   await supabase.from("manifests")

@@ -29,7 +29,7 @@ export default function SearchPage() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [userRole, setUserRole] = useState<string>("worker");
+  const [userRole, setUserRole] = useState<string>("associate");
 
   useEffect(() => {
     async function init() {

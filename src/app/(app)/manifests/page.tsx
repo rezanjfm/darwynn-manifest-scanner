@@ -40,7 +40,7 @@ export default function ManifestsPage() {
 
   const [groups, setGroups]     = useState<DayGroup[]>([]);
   const [loading, setLoading]   = useState(true);
-  const [userRole, setUserRole] = useState<string>("worker");
+  const [userRole, setUserRole] = useState<string>("associate");
 
   const load = useCallback(async () => {
     setLoading(true);

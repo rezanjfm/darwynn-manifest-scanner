@@ -1,10 +1,11 @@
-export type Role = "worker" | "manager" | "admin";
+export type Role = "associate" | "manager" | "admin";
 
 export interface UserProfile {
   id: string;
   email: string | null;
   full_name: string | null;
   role: Role;
+  manager_id: string | null;
   created_at: string;
   updated_at: string;
 }

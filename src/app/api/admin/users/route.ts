@@ -42,9 +42,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const body = await req.json() as { email?: string; full_name?: string; role?: string };
-  const { email, full_name, role = "worker" } = body;
+  const { email, full_name, role = "associate" } = body;
   if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
-  if (!["worker", "manager", "admin"].includes(role)) {
+  if (!["associate", "manager", "admin"].includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
@@ -78,18 +78,17 @@ export async function PATCH(req: NextRequest) {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const body = await req.json() as { userId?: string; role?: string };
-  const { userId, role } = body;
-  if (!userId || !role) {
-    return NextResponse.json({ error: "Missing userId or role" }, { status: 400 });
-  }
-  if (!["worker", "manager", "admin"].includes(role)) {
+  const body = await req.json() as { userId?: string; role?: string; manager_id?: string | null };
+  const { userId, role, manager_id } = body;
+  if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+  if (role && !["associate", "manager", "admin"].includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
-  const { error } = await service()
-    .from("user_profiles")
-    .update({ role, updated_at: new Date().toISOString() })
-    .eq("id", userId);
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (role) update.role = role;
+  if (manager_id !== undefined) update.manager_id = manager_id;
+
+  const { error } = await service().from("user_profiles").update(update).eq("id", userId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
