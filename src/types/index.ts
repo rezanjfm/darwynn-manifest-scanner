@@ -6,6 +6,7 @@ export interface UserProfile {
   full_name: string | null;
   role: Role;
   manager_id: string | null;
+  username: string | null;
   created_at: string;
   updated_at: string;
 }

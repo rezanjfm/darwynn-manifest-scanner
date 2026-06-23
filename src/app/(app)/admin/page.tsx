@@ -77,10 +77,18 @@ export default function AdminPage() {
   const [saving,     setSaving]     = useState<string | null>(null);
   const [saveError,  setSaveError]  = useState<string | null>(null);
 
-  // Invite form
+  // Create associate form (username + PIN)
+  const [newName,       setNewName]       = useState("");
+  const [newUsername,   setNewUsername]   = useState("");
+  const [newPin,        setNewPin]        = useState("");
+  const [creating,      setCreating]      = useState(false);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [createError,   setCreateError]   = useState<string | null>(null);
+
+  // Invite staff form (email + role)
   const [inviteEmail,   setInviteEmail]   = useState("");
   const [inviteName,    setInviteName]    = useState("");
-  const [inviteRole,    setInviteRole]    = useState("associate");
+  const [inviteRole,    setInviteRole]    = useState("manager");
   const [inviting,      setInviting]      = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [inviteError,   setInviteError]   = useState<string | null>(null);
@@ -215,6 +223,27 @@ export default function AdminPage() {
       }
     } catch { setSaveError("Network error"); }
     setSaving(null);
+  }
+
+  async function createAssociate(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true); setCreateError(null); setCreateSuccess(null);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "associate", full_name: newName.trim(), username: newUsername.trim(), pin: newPin }),
+      });
+      const body = await res.json() as { error?: string };
+      if (!res.ok) { setCreateError(body.error ?? "Failed to create associate"); }
+      else {
+        setCreateSuccess(`Associate "${newName.trim()}" created`);
+        setNewName(""); setNewUsername(""); setNewPin("");
+        const refreshed = await fetch("/api/admin/users");
+        if (refreshed.ok) setUsers(await refreshed.json() as UserProfile[]);
+      }
+    } catch { setCreateError("Network error"); }
+    setCreating(false);
   }
 
   async function inviteUser(e: React.FormEvent) {
@@ -662,9 +691,59 @@ export default function AdminPage() {
         {/* ════════════════════════════ USERS ════════════════════════════════ */}
         {tab === "users" && (
           <>
-            {/* Invite form */}
+            {/* Create associate — username + PIN */}
+            <div className="glass rounded-2xl p-5 border border-brand/15">
+              <h3 className="text-sm font-bold text-brand mb-1">Add Associate</h3>
+              <p className="text-xs text-gray-500 mb-4">No email needed — they log in with username + PIN.</p>
+              <form onSubmit={createAssociate} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <input
+                    type="text" placeholder="Full name" value={newName}
+                    onChange={e => setNewName(e.target.value)} required
+                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors"
+                  />
+                  <input
+                    type="text" placeholder="Username (e.g. johndoe)" value={newUsername}
+                    onChange={e => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))} required
+                    autoCapitalize="none" autoCorrect="off"
+                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors font-mono"
+                  />
+                  <input
+                    type="text" inputMode="numeric" placeholder="PIN (min 6 digits)" value={newPin}
+                    onChange={e => setNewPin(e.target.value)} required minLength={6}
+                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors tracking-widest"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <button type="submit" disabled={creating || !newName.trim() || !newUsername.trim() || newPin.length < 6}
+                    className="disabled:opacity-40 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.97]"
+                    style={{ background: "linear-gradient(135deg,#00B2D8,#0093B8)" }}
+                  >
+                    {creating ? "Creating…" : "Create Associate"}
+                  </button>
+                  {newUsername && (
+                    <span className="text-xs text-gray-600 font-mono">Login: {newUsername}@staff.darwynn.local</span>
+                  )}
+                </div>
+                {createSuccess && (
+                  <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
+                    <span>✓ {createSuccess}</span>
+                    <button type="button" onClick={() => setCreateSuccess(null)} className="text-green-500 text-lg leading-none">×</button>
+                  </div>
+                )}
+                {createError && (
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
+                    <span>⚠ {createError}</span>
+                    <button type="button" onClick={() => setCreateError(null)} className="text-red-500 text-lg leading-none">×</button>
+                  </div>
+                )}
+              </form>
+            </div>
+
+            {/* Invite manager / admin by email */}
             <div className="glass rounded-2xl p-5 border border-purple-500/15">
-              <h3 className="text-sm font-bold text-purple-300 mb-4">Invite New User</h3>
+              <h3 className="text-sm font-bold text-purple-300 mb-1">Invite Manager / Admin</h3>
+              <p className="text-xs text-gray-500 mb-4">Sends an email invite with a sign-up link.</p>
               <form onSubmit={inviteUser} className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
@@ -682,7 +761,6 @@ export default function AdminPage() {
                   <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
                     className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 [color-scheme:dark]"
                   >
-                    <option value="associate">Associate</option>
                     <option value="manager">Manager</option>
                     <option value="admin">Admin</option>
                   </select>
@@ -737,7 +815,9 @@ export default function AdminPage() {
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-none ${ROLE_CHIP[u.role] ?? "bg-gray-700 text-gray-300"}`}>{initial}</div>
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-sm">{u.full_name ?? "(no name)"}</div>
-                        <div className="text-xs text-gray-500 truncate">{u.email}</div>
+                        <div className="text-xs text-gray-500 truncate font-mono">
+                          {u.username ? u.username : u.email}
+                        </div>
                         {u.role === "associate" && assignedMgr && (
                           <div className="text-xs text-blue-400 mt-0.5">→ {assignedMgr.full_name ?? assignedMgr.email}</div>
                         )}
