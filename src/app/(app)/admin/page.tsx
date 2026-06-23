@@ -68,6 +68,7 @@ export default function AdminPage() {
   const [users, setUsers]         = useState<UserProfile[]>([]);
   const [roleEdits, setRoleEdits] = useState<Record<string, string>>({});
   const [saving, setSaving]       = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [kpi, setKpi]               = useState<KpiRow[]>([]);
   const [kpiLoading, setKpiLoading] = useState(false);
@@ -79,13 +80,24 @@ export default function AdminPage() {
   // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-      const { data: profile } = await supabase.from("user_profiles").select("role").eq("id", user.id).single();
-      if (profile?.role !== "admin") { router.push("/manifests"); return; }
-      const { data: usersData } = await supabase.from("user_profiles").select("*").order("created_at");
-      setUsers((usersData as UserProfile[]) ?? []);
-      setAuthed(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { router.push("/login"); return; }
+
+        // Use the server API route (service role) — bypasses RLS for reliable admin check
+        const res = await fetch("/api/admin/users");
+        if (res.status === 403) { router.push("/manifests"); return; }
+        if (!res.ok) throw new Error("Failed to load users");
+
+        const usersData = await res.json() as UserProfile[];
+        const me = usersData.find(u => u.id === user.id);
+        if (me?.role !== "admin") { router.push("/manifests"); return; }
+
+        setUsers(usersData);
+        setAuthed(true);
+      } catch {
+        router.push("/manifests");
+      }
     }
     init();
   }, [supabase, router]);
@@ -169,18 +181,27 @@ export default function AdminPage() {
 
   const isToday = date === format(new Date(), "yyyy-MM-dd");
 
-  // ── Role save ────────────────────────────────────────────────────────────────
+  // ── Role save (server-side, bypasses RLS) ────────────────────────────────────
   async function saveRole(userId: string) {
     const newRole = roleEdits[userId];
     if (!newRole || newRole === users.find(u => u.id === userId)?.role) return;
     setSaving(userId);
-    const { error } = await supabase
-      .from("user_profiles")
-      .update({ role: newRole, updated_at: new Date().toISOString() })
-      .eq("id", userId);
-    if (!error) {
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole as UserProfile["role"] } : u));
-      setRoleEdits(prev => { const n = { ...prev }; delete n[userId]; return n; });
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, role: newRole }),
+      });
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        setSaveError(body.error ?? "Save failed");
+      } else {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole as UserProfile["role"] } : u));
+        setRoleEdits(prev => { const n = { ...prev }; delete n[userId]; return n; });
+      }
+    } catch {
+      setSaveError("Network error — please try again");
     }
     setSaving(null);
   }
@@ -723,6 +744,12 @@ export default function AdminPage() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {tab === "users" && (
           <>
+            {saveError && (
+              <div className="bg-red-900/60 border border-red-700 text-red-300 rounded-xl px-4 py-3 text-sm flex items-center justify-between">
+                <span>⚠ {saveError}</span>
+                <button onClick={() => setSaveError(null)} className="text-red-400 text-lg leading-none">×</button>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
                 {users.length} accounts registered
