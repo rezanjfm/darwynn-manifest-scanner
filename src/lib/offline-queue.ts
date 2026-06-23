@@ -7,7 +7,7 @@ interface ManifestDB extends DBSchema {
   scans: {
     key: string;
     value: QueuedScan;
-    indexes: { by_manifest: string; by_synced: boolean };
+    indexes: { by_manifest: string };
   };
 }
 
@@ -19,7 +19,6 @@ function getDB() {
       upgrade(db) {
         const store = db.createObjectStore("scans", { keyPath: "id" });
         store.createIndex("by_manifest", "manifest_id");
-        store.createIndex("by_synced", "synced");
       },
     });
   }
@@ -56,8 +55,8 @@ export async function getLocalTrackingNumbers(manifestId: string): Promise<Set<s
 
 export async function clearSyncedScans(): Promise<void> {
   const db = await getDB();
-  const synced = await db.getAllFromIndex("scans", "by_synced", true as unknown as boolean);
+  const all = await db.getAll("scans");
   const tx = db.transaction("scans", "readwrite");
-  await Promise.all(synced.map((s) => tx.store.delete(s.id)));
+  await Promise.all(all.filter((s) => s.synced).map((s) => tx.store.delete(s.id)));
   await tx.done;
 }
