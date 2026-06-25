@@ -25,5 +25,12 @@ CREATE INDEX IF NOT EXISTS idx_user_profiles_warehouse ON user_profiles(warehous
 -- RLS: authenticated users can read warehouses (needed for scanner UI)
 ALTER TABLE warehouses ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "warehouses_select_auth" ON warehouses
-  FOR SELECT TO authenticated USING (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'warehouses' AND policyname = 'warehouses_select_auth'
+  ) THEN
+    CREATE POLICY "warehouses_select_auth" ON warehouses
+      FOR SELECT TO authenticated USING (true);
+  END IF;
+END $$;
