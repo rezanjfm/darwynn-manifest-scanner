@@ -1,5 +1,15 @@
 export type Role = "associate" | "manager" | "admin";
 
+export interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+  city: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string | null;
@@ -7,6 +17,7 @@ export interface UserProfile {
   role: Role;
   manager_id: string | null;
   username: string | null;
+  warehouse_id: string | null;
   created_at: string;
   updated_at: string;
 }

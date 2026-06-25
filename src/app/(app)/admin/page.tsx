@@ -3,17 +3,17 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { UserProfile, Manifest, Carrier } from "@/types";
+import { UserProfile, Manifest, Carrier, Warehouse } from "@/types";
 import { format } from "date-fns";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type KpiRow = {
-  user_id:       string;
-  full_name:     string | null;
-  email:         string | null;
-  role:          string;
-  manager_id:    string | null;
+  user_id:        string;
+  full_name:      string | null;
+  email:          string | null;
+  role:           string;
+  manager_id:     string | null;
   outbound_scans: number;
   inbound_scans:  number;
   manual_scans:   number;
@@ -44,14 +44,15 @@ type CarrierStat = {
   outbound: number; inbound: number; manifests: number; openManifests: number;
 };
 
-const TABS = ["dashboard", "associates", "carriers", "users"] as const;
-type Tab = (typeof TABS)[number];
+const ALL_TABS = ["dashboard", "associates", "carriers", "users", "warehouses"] as const;
+type Tab = (typeof ALL_TABS)[number];
 
 const TAB_LABEL: Record<Tab, string> = {
   dashboard:  "Dashboard",
   associates: "Associates",
   carriers:   "Carriers",
   users:      "Users",
+  warehouses: "Warehouses",
 };
 
 const ROLE_CHIP: Record<string, string> = {
@@ -70,22 +71,29 @@ export default function AdminPage() {
   const [date,   setDate]   = useState(format(new Date(), "yyyy-MM-dd"));
   const [authed, setAuthed] = useState(false);
 
+  // Identity / role
+  const [myRole,        setMyRole]        = useState<string | null>(null);
+  const [myWarehouseId, setMyWarehouseId] = useState<string | null>(null);
+  const [warehouses,    setWarehouses]    = useState<Warehouse[]>([]);
+
   // Users
-  const [users,      setUsers]      = useState<UserProfile[]>([]);
-  const [roleEdits,  setRoleEdits]  = useState<Record<string, string>>({});
-  const [mgEdits,    setMgEdits]    = useState<Record<string, string | null>>({});
-  const [saving,     setSaving]     = useState<string | null>(null);
-  const [saveError,  setSaveError]  = useState<string | null>(null);
+  const [users,     setUsers]     = useState<UserProfile[]>([]);
+  const [roleEdits, setRoleEdits] = useState<Record<string, string>>({});
+  const [mgEdits,   setMgEdits]   = useState<Record<string, string | null>>({});
+  const [whEdits,   setWhEdits]   = useState<Record<string, string | null>>({});
+  const [saving,    setSaving]    = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Create associate form (username + PIN)
-  const [newName,       setNewName]       = useState("");
-  const [newUsername,   setNewUsername]   = useState("");
-  const [newPin,        setNewPin]        = useState("");
-  const [creating,      setCreating]      = useState(false);
-  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
-  const [createError,   setCreateError]   = useState<string | null>(null);
+  // Create associate form
+  const [newName,        setNewName]        = useState("");
+  const [newUsername,    setNewUsername]    = useState("");
+  const [newPin,         setNewPin]         = useState("");
+  const [newWarehouseId, setNewWarehouseId] = useState("");
+  const [creating,       setCreating]       = useState(false);
+  const [createSuccess,  setCreateSuccess]  = useState<string | null>(null);
+  const [createError,    setCreateError]    = useState<string | null>(null);
 
-  // Invite staff form (email + role)
+  // Invite staff form
   const [inviteEmail,   setInviteEmail]   = useState("");
   const [inviteName,    setInviteName]    = useState("");
   const [inviteRole,    setInviteRole]    = useState("manager");
@@ -94,16 +102,24 @@ export default function AdminPage() {
   const [inviteError,   setInviteError]   = useState<string | null>(null);
 
   // KPI / dashboard
-  const [kpi,        setKpi]        = useState<KpiRow[]>([]);
-  const [kpiLoading, setKpiLoading] = useState(false);
-  const [manifests,  setManifests]  = useState<ManifestWithCarrier[]>([]);
-  const [parcels,    setParcels]    = useState<ParcelBrief[]>([]);
+  const [kpi,         setKpi]         = useState<KpiRow[]>([]);
+  const [kpiLoading,  setKpiLoading]  = useState(false);
+  const [manifests,   setManifests]   = useState<ManifestWithCarrier[]>([]);
+  const [parcels,     setParcels]     = useState<ParcelBrief[]>([]);
   const [dashLoading, setDashLoading] = useState(false);
 
-  // Expanded associate in leaderboard → their individual scans
-  const [expandedUser,      setExpandedUser]      = useState<string | null>(null);
-  const [associateScans,    setAssociateScans]    = useState<Record<string, AssociateScan[]>>({});
-  const [loadingScans,      setLoadingScans]      = useState<string | null>(null);
+  // Expanded associate drill-down
+  const [expandedUser,   setExpandedUser]   = useState<string | null>(null);
+  const [associateScans, setAssociateScans] = useState<Record<string, AssociateScan[]>>({});
+  const [loadingScans,   setLoadingScans]   = useState<string | null>(null);
+
+  // Computed — always safe since myRole/warehouses start null/[]
+  const isAdmin     = myRole === "admin";
+  const myWarehouse = warehouses.find(w => w.id === myWarehouseId) ?? null;
+  const visibleTabs = (isAdmin
+    ? ["dashboard", "associates", "carriers", "users", "warehouses"]
+    : ["users"]) as Tab[];
+  const managers    = useMemo(() => users.filter(u => u.role === "manager" || u.role === "admin"), [users]);
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -116,7 +132,12 @@ export default function AdminPage() {
         if (!res.ok) throw new Error("Failed to load users");
         const usersData = await res.json() as UserProfile[];
         const me = usersData.find(u => u.id === user.id);
-        if (me?.role !== "admin") { router.push("/manifests"); return; }
+        if (!me || (me.role !== "admin" && me.role !== "manager")) { router.push("/manifests"); return; }
+        setMyRole(me.role);
+        setMyWarehouseId(me.warehouse_id ?? null);
+        if (me.role === "manager") setTab("users");
+        const whRes = await fetch("/api/admin/warehouses");
+        if (whRes.ok) setWarehouses(await whRes.json() as Warehouse[]);
         setUsers(usersData);
         setAuthed(true);
       } catch {
@@ -147,14 +168,14 @@ export default function AdminPage() {
     setKpiLoading(false);
   }, [supabase]);
 
-  useEffect(() => { if (!authed) return; loadDashboard(date); }, [authed, date, loadDashboard]);
-  useEffect(() => { if (!authed || tab !== "associates") return; loadKpi(date); }, [authed, tab, date, loadKpi]);
+  useEffect(() => { if (!authed || !isAdmin) return; loadDashboard(date); }, [authed, isAdmin, date, loadDashboard]);
+  useEffect(() => { if (!authed || !isAdmin || tab !== "associates") return; loadKpi(date); }, [authed, isAdmin, tab, date, loadKpi]);
 
-  // ── Expand associate → fetch their scans ─────────────────────────────────
+  // ── Expand associate → their scans ───────────────────────────────────────
   async function toggleAssociate(userId: string) {
     if (expandedUser === userId) { setExpandedUser(null); return; }
     setExpandedUser(userId);
-    if (associateScans[userId]) return; // already loaded
+    if (associateScans[userId]) return;
     setLoadingScans(userId);
     const dayStart = new Date(date + "T00:00:00").toISOString();
     const dayEnd   = new Date(date + "T23:59:59.999").toISOString();
@@ -175,9 +196,9 @@ export default function AdminPage() {
   const totalPackages = totalOut + totalIn;
   const manualCount   = useMemo(() => parcels.filter(p => p.entry_method === "manual").length, [parcels]);
   const manualRate    = totalPackages > 0 ? Math.round((manualCount / totalPackages) * 100) : 0;
-  const hourlyData = useMemo(() => { const b = Array(24).fill(0) as number[]; parcels.forEach(p => { b[new Date(p.scanned_at).getHours()]++; }); return b; }, [parcels]);
-  const peakCount  = Math.max(...hourlyData.slice(5, 23), 1);
-  const carrierStats = useMemo((): CarrierStat[] => {
+  const hourlyData    = useMemo(() => { const b = Array(24).fill(0) as number[]; parcels.forEach(p => { b[new Date(p.scanned_at).getHours()]++; }); return b; }, [parcels]);
+  const peakCount     = Math.max(...hourlyData.slice(5, 23), 1);
+  const carrierStats  = useMemo((): CarrierStat[] => {
     const map: Record<string, CarrierStat> = {};
     manifests.forEach(m => {
       if (!map[m.carrier_id]) map[m.carrier_id] = { id: m.carrier_id, name: m.carrier.name, code: m.carrier.code, outbound: 0, inbound: 0, manifests: 0, openManifests: 0 };
@@ -187,24 +208,25 @@ export default function AdminPage() {
     });
     return Object.values(map).sort((a, b) => (b.outbound + b.inbound) - (a.outbound + a.inbound));
   }, [manifests]);
-  const maxCarrierVol  = Math.max(...carrierStats.map(c => c.outbound + c.inbound), 1);
+  const maxCarrierVol    = Math.max(...carrierStats.map(c => c.outbound + c.inbound), 1);
   const activeAssociates = useMemo(() => kpi.filter(r => Number(r.outbound_scans) + Number(r.inbound_scans) > 0), [kpi]);
-  const topTotal = Math.max(...kpi.map(r => Number(r.outbound_scans) + Number(r.inbound_scans)), 1);
-  const isToday  = date === format(new Date(), "yyyy-MM-dd");
-  const managers = useMemo(() => users.filter(u => u.role === "manager" || u.role === "admin"), [users]);
+  const topTotal         = Math.max(...kpi.map(r => Number(r.outbound_scans) + Number(r.inbound_scans)), 1);
+  const isToday          = date === format(new Date(), "yyyy-MM-dd");
 
-  // ── Role + manager save ───────────────────────────────────────────────────
+  // ── User mutations ────────────────────────────────────────────────────────
   async function saveUser(userId: string) {
     const newRole = roleEdits[userId];
-    const newMgr  = mgEdits[userId]; // undefined = not changed
+    const newMgr  = mgEdits[userId];
+    const newWh   = whEdits[userId];
     const current = users.find(u => u.id === userId);
     if (!current) return;
-    if (!newRole && newMgr === undefined) return;
+    if (!newRole && newMgr === undefined && newWh === undefined) return;
     setSaving(userId); setSaveError(null);
     try {
       const body: Record<string, unknown> = { userId };
       if (newRole && newRole !== current.role) body.role = newRole;
-      if (newMgr !== undefined) body.manager_id = newMgr;
+      if (newMgr  !== undefined) body.manager_id  = newMgr;
+      if (newWh   !== undefined) body.warehouse_id = newWh;
       const res = await fetch("/api/admin/users", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -215,11 +237,16 @@ export default function AdminPage() {
         setSaveError(b.error ?? "Save failed");
       } else {
         setUsers(prev => prev.map(u => u.id === userId
-          ? { ...u, role: (newRole ?? u.role) as UserProfile["role"], manager_id: newMgr !== undefined ? newMgr : u.manager_id }
+          ? { ...u,
+              role:         (newRole ?? u.role) as UserProfile["role"],
+              manager_id:   newMgr !== undefined ? newMgr : u.manager_id,
+              warehouse_id: newWh  !== undefined ? newWh  : u.warehouse_id,
+            }
           : u
         ));
         setRoleEdits(prev => { const n = { ...prev }; delete n[userId]; return n; });
-        setMgEdits(prev => { const n = { ...prev }; delete n[userId]; return n; });
+        setMgEdits(prev =>   { const n = { ...prev }; delete n[userId]; return n; });
+        setWhEdits(prev =>   { const n = { ...prev }; delete n[userId]; return n; });
       }
     } catch { setSaveError("Network error"); }
     setSaving(null);
@@ -232,13 +259,19 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "associate", full_name: newName.trim(), username: newUsername.trim(), pin: newPin }),
+        body: JSON.stringify({
+          type:         "associate",
+          full_name:    newName.trim(),
+          username:     newUsername.trim(),
+          pin:          newPin,
+          warehouse_id: isAdmin ? (newWarehouseId || null) : myWarehouseId,
+        }),
       });
       const body = await res.json() as { error?: string };
       if (!res.ok) { setCreateError(body.error ?? "Failed to create associate"); }
       else {
         setCreateSuccess(`Associate "${newName.trim()}" created`);
-        setNewName(""); setNewUsername(""); setNewPin("");
+        setNewName(""); setNewUsername(""); setNewPin(""); setNewWarehouseId("");
         const refreshed = await fetch("/api/admin/users");
         if (refreshed.ok) setUsers(await refreshed.json() as UserProfile[]);
       }
@@ -267,15 +300,25 @@ export default function AdminPage() {
     setInviting(false);
   }
 
+  async function assignManagerToWarehouse(warehouseId: string, managerId: string) {
+    const res = await fetch("/api/admin/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: managerId, warehouse_id: warehouseId }),
+    });
+    if (res.ok) {
+      setUsers(prev => prev.map(u => u.id === managerId ? { ...u, warehouse_id: warehouseId } : u));
+    }
+  }
+
   if (!authed) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <div className="text-purple-400 text-sm font-semibold animate-pulse">Loading admin panel…</div>
+        <div className="text-purple-400 text-sm font-semibold animate-pulse">Loading…</div>
       </div>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-white">
 
@@ -290,17 +333,22 @@ export default function AdminPage() {
               >
                 ←
               </button>
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center font-black text-xs shadow-lg shadow-purple-900/40 flex-none">A</div>
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center font-black text-xs shadow-lg shadow-purple-900/40 flex-none">
+                {isAdmin ? "A" : "M"}
+              </div>
               <div>
-                <h1 className="font-bold text-sm leading-none text-white">Admin Panel</h1>
-                <p className="text-[11px] text-purple-400/80 mt-0.5">Darwynn Logistics</p>
+                <h1 className="font-bold text-sm leading-none text-white">
+                  {isAdmin ? "Admin Panel" : `${myWarehouse?.city ?? "Manager"} Panel`}
+                </h1>
+                <p className="text-[11px] text-purple-400/80 mt-0.5">
+                  {isAdmin ? "Darwynn Logistics" : myWarehouse ? `${myWarehouse.id} · ${myWarehouse.code}` : "No warehouse assigned"}
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            {isAdmin && (
               <div className="flex items-center gap-1.5 bg-white/5 border border-white/8 rounded-xl px-3 py-2">
                 <input
-                  type="date"
-                  value={date}
+                  type="date" value={date}
                   onChange={e => { setDate(e.target.value); setExpandedUser(null); setAssociateScans({}); }}
                   className="bg-transparent text-xs text-white focus:outline-none [color-scheme:dark] w-28"
                 />
@@ -308,12 +356,11 @@ export default function AdminPage() {
                   <span className="text-[10px] bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded-full leading-none font-semibold">Live</span>
                 )}
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Tab bar */}
           <div className="flex -mb-px">
-            {TABS.map(t => (
+            {visibleTabs.map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all ${
                   tab === t
@@ -330,13 +377,13 @@ export default function AdminPage() {
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
 
-        {/* ════════════════════════════ DASHBOARD ════════════════════════════ */}
+        {/* ════════════════ DASHBOARD ════════════════ */}
         {tab === "dashboard" && (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KpiCard value={dashLoading ? "…" : totalPackages} label="Total Processed"  color="purple" sub={format(new Date(date + "T12:00:00"), "MMM d, yyyy")} />
-              <KpiCard value={dashLoading ? "…" : totalOut}      label="Outbound"         color="blue"   />
-              <KpiCard value={dashLoading ? "…" : totalIn}       label="Returns In"       color="orange" />
+              <KpiCard value={dashLoading ? "…" : totalPackages} label="Total Processed"     color="purple" sub={format(new Date(date + "T12:00:00"), "MMM d, yyyy")} />
+              <KpiCard value={dashLoading ? "…" : totalOut}      label="Outbound"            color="blue"   />
+              <KpiCard value={dashLoading ? "…" : totalIn}       label="Returns In"          color="orange" />
               <KpiCard value={dashLoading ? "…" : `${manualRate}%`} label="Manual Entry Rate" color={manualRate > 15 ? "red" : manualRate > 5 ? "yellow" : "green"} sub={manualRate > 15 ? "High — check labels" : manualRate > 5 ? "Elevated" : "Good"} />
             </div>
 
@@ -361,9 +408,7 @@ export default function AdminPage() {
                     const isIn = m.direction === "inbound";
                     return (
                       <button key={m.id} onClick={() => router.push(`/scan/${m.id}`)}
-                        className={`text-left rounded-xl border p-4 flex items-center gap-4 hover:brightness-110 transition-all ${
-                          isIn ? "bg-orange-950/50 border-orange-800/40" : "bg-blue-950/50 border-blue-800/40"
-                        }`}
+                        className={`text-left rounded-xl border p-4 flex items-center gap-4 hover:brightness-110 transition-all ${isIn ? "bg-orange-950/50 border-orange-800/40" : "bg-blue-950/50 border-blue-800/40"}`}
                       >
                         <div className={`text-xs font-black px-2 py-1 rounded flex-none ${isIn ? "bg-orange-500/20 text-orange-400" : "bg-blue-500/20 text-blue-400"}`}>
                           {isIn ? "↩ RTN" : "↑ OUT"}
@@ -388,8 +433,8 @@ export default function AdminPage() {
                 <div className="glass rounded-2xl p-5">
                   <div className="flex items-end gap-[3px] h-32">
                     {hourlyData.slice(5, 23).map((count, i) => {
-                      const hour = i + 5;
-                      const pct  = count === 0 ? 2 : Math.max(4, Math.round((count / peakCount) * 100));
+                      const hour  = i + 5;
+                      const pct   = count === 0 ? 2 : Math.max(4, Math.round((count / peakCount) * 100));
                       const label = hour % 3 === 0 ? `${hour % 12 || 12}${hour < 12 ? "a" : "p"}` : "";
                       return (
                         <div key={hour} className="flex-1 flex flex-col items-center gap-0.5 group">
@@ -418,26 +463,20 @@ export default function AdminPage() {
                     return (
                       <div key={c.id} className="px-5 py-4">
                         <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">{c.name}</span>
-                          </div>
+                          <span className="font-semibold">{c.name}</span>
                           <span className="text-sm font-bold">{total} pkgs</span>
                         </div>
                         <div className="space-y-1.5">
                           {c.outbound > 0 && (
                             <div className="flex items-center gap-3">
                               <span className="text-xs text-blue-400 w-14 flex-none">↑ {c.outbound}</span>
-                              <div className="flex-1 bg-gray-800 rounded-full h-2">
-                                <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${outPct}%` }} />
-                              </div>
+                              <div className="flex-1 bg-gray-800 rounded-full h-2"><div className="bg-blue-500 h-2 rounded-full" style={{ width: `${outPct}%` }} /></div>
                             </div>
                           )}
                           {c.inbound > 0 && (
                             <div className="flex items-center gap-3">
                               <span className="text-xs text-orange-400 w-14 flex-none">↩ {c.inbound}</span>
-                              <div className="flex-1 bg-gray-800 rounded-full h-2">
-                                <div className="bg-orange-500 h-2 rounded-full" style={{ width: `${inPct}%` }} />
-                              </div>
+                              <div className="flex-1 bg-gray-800 rounded-full h-2"><div className="bg-orange-500 h-2 rounded-full" style={{ width: `${inPct}%` }} /></div>
                             </div>
                           )}
                         </div>
@@ -457,7 +496,7 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* ════════════════════════════ ASSOCIATES ═══════════════════════════ */}
+        {/* ════════════════ ASSOCIATES ════════════════ */}
         {tab === "associates" && (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -472,9 +511,7 @@ export default function AdminPage() {
                 {kpiLoading ? (
                   <div className="text-center py-14 text-gray-500 animate-pulse">Loading…</div>
                 ) : kpi.length === 0 ? (
-                  <div className="text-center py-14 text-gray-500">
-                    No activity on {format(new Date(date + "T12:00:00"), "MMMM d, yyyy")}
-                  </div>
+                  <div className="text-center py-14 text-gray-500">No activity on {format(new Date(date + "T12:00:00"), "MMMM d, yyyy")}</div>
                 ) : (
                   <div className="divide-y divide-gray-800/60">
                     {[...kpi]
@@ -490,27 +527,20 @@ export default function AdminPage() {
                         const mins    = first && last ? (last.getTime() - first.getTime()) / 60000 : 0;
                         const hrs     = mins > 0 ? (mins / 60).toFixed(1) : null;
                         const pace    = mins > 1 ? Math.round(total / (mins / 60)) : null;
-                        const isActive  = total > 0;
+                        const isActive   = total > 0;
                         const isExpanded = expandedUser === row.user_id;
-                        const rankColor = idx === 0 ? "text-yellow-400" : idx === 1 ? "text-gray-400" : idx === 2 ? "text-amber-700" : "text-gray-700";
-
+                        const rankColor  = idx === 0 ? "text-yellow-400" : idx === 1 ? "text-gray-400" : idx === 2 ? "text-amber-700" : "text-gray-700";
                         return (
                           <div key={row.user_id}>
-                            {/* Row */}
                             <button
                               onClick={() => isActive ? toggleAssociate(row.user_id) : undefined}
                               className={`w-full text-left px-5 py-4 transition-colors ${isActive ? "hover:bg-white/[0.02] cursor-pointer" : "opacity-40 cursor-default"}`}
                             >
                               <div className="flex items-start gap-4">
-                                {/* Rank */}
-                                <div className={`text-sm font-black w-5 text-right flex-none mt-1 ${rankColor}`}>
-                                  {isActive ? `#${idx + 1}` : "—"}
-                                </div>
-                                {/* Avatar */}
+                                <div className={`text-sm font-black w-5 text-right flex-none mt-1 ${rankColor}`}>{isActive ? `#${idx + 1}` : "—"}</div>
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-none ${ROLE_CHIP[row.role] ?? "bg-gray-700 text-gray-300"}`}>
                                   {(row.full_name ?? row.email ?? "?")[0].toUpperCase()}
                                 </div>
-                                {/* Content */}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                     <span className="font-semibold text-sm">{row.full_name ?? row.email ?? "Unknown"}</span>
@@ -532,18 +562,13 @@ export default function AdminPage() {
                                     </>
                                   )}
                                 </div>
-                                {/* Total + expand indicator */}
                                 <div className="text-right flex-none flex flex-col items-end gap-1">
                                   <div className={`text-2xl font-black tabular-nums ${isActive ? "text-white" : "text-gray-700"}`}>{total}</div>
                                   <div className="text-xs text-gray-600">pkgs</div>
-                                  {isActive && (
-                                    <div className="text-gray-600 text-xs">{isExpanded ? "▲" : "▼"}</div>
-                                  )}
+                                  {isActive && <div className="text-gray-600 text-xs">{isExpanded ? "▲" : "▼"}</div>}
                                 </div>
                               </div>
                             </button>
-
-                            {/* Expanded: individual scans */}
                             {isExpanded && (
                               <div className="bg-gray-950/60 border-t border-white/5 px-5 py-3">
                                 <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">
@@ -558,14 +583,10 @@ export default function AdminPage() {
                                     {associateScans[row.user_id].map(s => (
                                       <div key={s.id} className="flex items-center gap-3 py-1.5 border-b border-gray-800/40 last:border-0">
                                         <span className="text-gray-500 text-xs flex-none w-14">{format(new Date(s.scanned_at), "h:mm a")}</span>
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-none ${
-                                          s.manifest?.direction === "inbound" ? "bg-orange-900/60 text-orange-400" : "bg-blue-900/60 text-blue-400"
-                                        }`}>
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-none ${s.manifest?.direction === "inbound" ? "bg-orange-900/60 text-orange-400" : "bg-blue-900/60 text-blue-400"}`}>
                                           {s.manifest?.direction === "inbound" ? "↩" : "↑"}
                                         </span>
-                                        <span className={`text-[10px] font-bold px-1 rounded flex-none ${
-                                          s.entry_method === "manual" ? "bg-yellow-900/60 text-yellow-400" : "bg-green-900/40 text-green-500"
-                                        }`}>
+                                        <span className={`text-[10px] font-bold px-1 rounded flex-none ${s.entry_method === "manual" ? "bg-yellow-900/60 text-yellow-400" : "bg-green-900/40 text-green-500"}`}>
                                           {s.entry_method === "manual" ? "M" : "S"}
                                         </span>
                                         <span className="font-mono text-xs text-gray-200 flex-1 truncate">{s.tracking_number}</span>
@@ -590,10 +611,10 @@ export default function AdminPage() {
                 <div className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-3">Shift Summary</div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
                   {[
-                    { value: activeAssociates.length,                                             label: "Associates on shift" },
+                    { value: activeAssociates.length,                                                                      label: "Associates on shift" },
                     { value: activeAssociates.length > 0 ? Math.round((totalOut + totalIn) / activeAssociates.length) : 0, label: "Avg pkgs / associate" },
-                    { value: manualCount,                                                          label: "Manual entries" },
-                    { value: totalPackages - manualCount,                                          label: "Scanned entries" },
+                    { value: manualCount,                                                                                   label: "Manual entries" },
+                    { value: totalPackages - manualCount,                                                                   label: "Scanned entries" },
                   ].map(({ value, label }) => (
                     <div key={label}>
                       <div className="text-2xl font-bold">{value}</div>
@@ -606,15 +627,14 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* ════════════════════════════ CARRIERS ═════════════════════════════ */}
+        {/* ════════════════ CARRIERS ════════════════ */}
         {tab === "carriers" && (
           <>
             <div className="grid grid-cols-3 gap-3">
-              <KpiCard value={dashLoading ? "…" : carrierStats.length} label="Active Carriers"  color="purple" />
-              <KpiCard value={dashLoading ? "…" : totalOut}            label="Outbound Volume"  color="blue"   />
-              <KpiCard value={dashLoading ? "…" : totalIn}             label="Returns Volume"   color="orange" />
+              <KpiCard value={dashLoading ? "…" : carrierStats.length} label="Active Carriers" color="purple" />
+              <KpiCard value={dashLoading ? "…" : totalOut}            label="Outbound Volume" color="blue"   />
+              <KpiCard value={dashLoading ? "…" : totalIn}             label="Returns Volume"  color="orange" />
             </div>
-
             {dashLoading ? (
               <div className="text-center py-12 text-gray-500 animate-pulse">Loading…</div>
             ) : carrierStats.length === 0 ? (
@@ -623,18 +643,16 @@ export default function AdminPage() {
               <Section title="Volume by Carrier">
                 <div className="space-y-3">
                   {carrierStats.map(c => {
-                    const total  = c.outbound + c.inbound;
-                    const share  = Math.round((total / Math.max(totalPackages, 1)) * 100);
-                    const outPct = (c.outbound / maxCarrierVol) * 100;
-                    const inPct  = (c.inbound  / maxCarrierVol) * 100;
+                    const total        = c.outbound + c.inbound;
+                    const share        = Math.round((total / Math.max(totalPackages, 1)) * 100);
+                    const outPct       = (c.outbound / maxCarrierVol) * 100;
+                    const inPct        = (c.inbound  / maxCarrierVol) * 100;
                     const mfForCarrier = manifests.filter(m => m.carrier_id === c.id);
                     return (
                       <div key={c.id} className="glass rounded-2xl p-5">
                         <div className="flex items-start justify-between mb-4">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-base">{c.name}</span>
-                              </div>
+                            <div className="font-bold text-base">{c.name}</div>
                             <div className="text-xs text-gray-500 mt-0.5">{mfForCarrier.length} manifest{mfForCarrier.length !== 1 ? "s" : ""} · {share}% of day</div>
                           </div>
                           <div className="text-right">
@@ -648,9 +666,7 @@ export default function AdminPage() {
                               <span className="text-blue-400 font-semibold">↑ Outbound</span>
                               <span className="text-gray-400">{c.outbound} pkgs</span>
                             </div>
-                            <div className="bg-gray-800 rounded-full h-2.5">
-                              <div className="bg-gradient-to-r from-blue-700 to-blue-400 h-2.5 rounded-full" style={{ width: `${outPct}%` }} />
-                            </div>
+                            <div className="bg-gray-800 rounded-full h-2.5"><div className="bg-gradient-to-r from-blue-700 to-blue-400 h-2.5 rounded-full" style={{ width: `${outPct}%` }} /></div>
                           </div>
                         )}
                         {c.inbound > 0 && (
@@ -659,19 +675,13 @@ export default function AdminPage() {
                               <span className="text-orange-400 font-semibold">↩ Returns</span>
                               <span className="text-gray-400">{c.inbound} pkgs</span>
                             </div>
-                            <div className="bg-gray-800 rounded-full h-2.5">
-                              <div className="bg-gradient-to-r from-orange-700 to-orange-400 h-2.5 rounded-full" style={{ width: `${inPct}%` }} />
-                            </div>
+                            <div className="bg-gray-800 rounded-full h-2.5"><div className="bg-gradient-to-r from-orange-700 to-orange-400 h-2.5 rounded-full" style={{ width: `${inPct}%` }} /></div>
                           </div>
                         )}
                         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                           {mfForCarrier.map(m => (
                             <button key={m.id} onClick={() => router.push(`/scan/${m.id}`)}
-                              className={`text-left rounded-lg px-3 py-2 text-xs border transition-colors ${
-                                m.direction === "inbound"
-                                  ? "bg-orange-950/60 border-orange-800/40 hover:border-orange-600"
-                                  : "bg-blue-950/60 border-blue-800/40 hover:border-blue-600"
-                              }`}
+                              className={`text-left rounded-lg px-3 py-2 text-xs border transition-colors ${m.direction === "inbound" ? "bg-orange-950/60 border-orange-800/40 hover:border-orange-600" : "bg-blue-950/60 border-blue-800/40 hover:border-blue-600"}`}
                             >
                               <div className="font-semibold">{m.direction === "inbound" ? "↩ Return" : "↑ Outbound"}</div>
                               <div className="font-bold mt-0.5 text-white">{m.parcel_count} pkgs</div>
@@ -688,103 +698,133 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* ════════════════════════════ USERS ════════════════════════════════ */}
+        {/* ════════════════ USERS ════════════════ */}
         {tab === "users" && (
           <>
-            {/* Create associate — username + PIN */}
-            <div className="glass rounded-2xl p-5 border border-brand/15">
-              <h3 className="text-sm font-bold text-brand mb-1">Add Associate</h3>
-              <p className="text-xs text-gray-500 mb-4">No email needed — they log in with username + PIN.</p>
-              <form onSubmit={createAssociate} className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <input
-                    type="text" placeholder="Full name" value={newName}
-                    onChange={e => setNewName(e.target.value)} required
-                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors"
-                  />
-                  <input
-                    type="text" placeholder="Username (e.g. johndoe)" value={newUsername}
-                    onChange={e => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))} required
-                    autoCapitalize="none" autoCorrect="off"
-                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors font-mono"
-                  />
-                  <input
-                    type="text" inputMode="numeric" placeholder="PIN (min 6 digits)" value={newPin}
-                    onChange={e => setNewPin(e.target.value)} required minLength={6}
-                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors tracking-widest"
-                  />
-                </div>
-                <div className="flex items-center gap-3">
-                  <button type="submit" disabled={creating || !newName.trim() || !newUsername.trim() || newPin.length < 6}
-                    className="disabled:opacity-40 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.97]"
-                    style={{ background: "linear-gradient(135deg,#00B2D8,#0093B8)" }}
-                  >
-                    {creating ? "Creating…" : "Create Associate"}
-                  </button>
-                  {newUsername && (
-                    <span className="text-xs text-gray-600 font-mono">Login: {newUsername}@staff.darwynn.local</span>
-                  )}
-                </div>
-                {createSuccess && (
-                  <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
-                    <span>✓ {createSuccess}</span>
-                    <button type="button" onClick={() => setCreateSuccess(null)} className="text-green-500 text-lg leading-none">×</button>
-                  </div>
-                )}
-                {createError && (
-                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
-                    <span>⚠ {createError}</span>
-                    <button type="button" onClick={() => setCreateError(null)} className="text-red-500 text-lg leading-none">×</button>
-                  </div>
-                )}
-              </form>
-            </div>
+            {/* Manager: no warehouse assigned yet */}
+            {!isAdmin && !myWarehouseId && (
+              <div className="glass rounded-2xl p-5 border border-yellow-500/20">
+                <p className="text-yellow-400 text-sm font-semibold">Not yet assigned to a warehouse</p>
+                <p className="text-xs text-gray-500 mt-1">Ask an admin to assign you to a warehouse before adding associates.</p>
+              </div>
+            )}
 
-            {/* Invite manager / admin by email */}
-            <div className="glass rounded-2xl p-5 border border-purple-500/15">
-              <h3 className="text-sm font-bold text-purple-300 mb-1">Invite Manager / Admin</h3>
-              <p className="text-xs text-gray-500 mb-4">Sends an email invite with a sign-up link.</p>
-              <form onSubmit={inviteUser} className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input
-                    type="email" placeholder="Email address" value={inviteEmail}
-                    onChange={e => setInviteEmail(e.target.value)} required
-                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 placeholder-gray-600 w-full transition-colors"
-                  />
-                  <input
-                    type="text" placeholder="Full name (optional)" value={inviteName}
-                    onChange={e => setInviteName(e.target.value)}
-                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 placeholder-gray-600 w-full transition-colors"
-                  />
-                </div>
-                <div className="flex items-center gap-3">
-                  <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
-                    className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 [color-scheme:dark]"
-                  >
-                    <option value="manager">Manager</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <button type="submit" disabled={inviting || !inviteEmail.trim()}
-                    className="disabled:opacity-40 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.97]"
-                    style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}
-                  >
-                    {inviting ? "Sending…" : "Send Invite"}
-                  </button>
-                </div>
-                {inviteSuccess && (
-                  <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
-                    <span>✓ {inviteSuccess}</span>
-                    <button type="button" onClick={() => setInviteSuccess(null)} className="text-green-500 text-lg leading-none">×</button>
+            {/* Create associate */}
+            {(isAdmin || myWarehouseId) && (
+              <div className="glass rounded-2xl p-5 border border-brand/15">
+                <h3 className="text-sm font-bold text-brand mb-1">Add Associate</h3>
+                <p className="text-xs text-gray-500 mb-4">No email needed — they log in with username + PIN.</p>
+                <form onSubmit={createAssociate} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <input
+                      type="text" placeholder="Full name" value={newName}
+                      onChange={e => setNewName(e.target.value)} required
+                      className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors"
+                    />
+                    <input
+                      type="text" placeholder="Username (e.g. johndoe)" value={newUsername}
+                      onChange={e => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))} required
+                      autoCapitalize="none" autoCorrect="off"
+                      className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors font-mono"
+                    />
+                    <input
+                      type="text" inputMode="numeric" placeholder="PIN (min 6 digits)" value={newPin}
+                      onChange={e => setNewPin(e.target.value)} required minLength={6}
+                      className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand/50 placeholder-gray-600 w-full transition-colors tracking-widest"
+                    />
                   </div>
-                )}
-                {inviteError && (
-                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
-                    <span>⚠ {inviteError}</span>
-                    <button type="button" onClick={() => setInviteError(null)} className="text-red-500 text-lg leading-none">×</button>
+
+                  {isAdmin ? (
+                    <select value={newWarehouseId} onChange={e => setNewWarehouseId(e.target.value)}
+                      className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm [color-scheme:dark] focus:outline-none focus:border-brand/50 w-full sm:w-auto"
+                    >
+                      <option value="">No warehouse</option>
+                      {warehouses.map(w => (
+                        <option key={w.id} value={w.id}>{w.city} — {w.id} ({w.code})</option>
+                      ))}
+                    </select>
+                  ) : myWarehouse ? (
+                    <div className="inline-flex items-center gap-2 text-xs text-emerald-400 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                      <span className="font-mono">{myWarehouse.code}</span>
+                      <span className="font-semibold">{myWarehouse.city}</span>
+                      <span className="text-emerald-600">· will be assigned to this warehouse</span>
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-center gap-3">
+                    <button type="submit" disabled={creating || !newName.trim() || !newUsername.trim() || newPin.length < 6}
+                      className="disabled:opacity-40 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.97]"
+                      style={{ background: "linear-gradient(135deg,#00B2D8,#0093B8)" }}
+                    >
+                      {creating ? "Creating…" : "Create Associate"}
+                    </button>
+                    {newUsername && (
+                      <span className="text-xs text-gray-600 font-mono">Login: {newUsername}@staff.darwynn.local</span>
+                    )}
                   </div>
-                )}
-              </form>
-            </div>
+                  {createSuccess && (
+                    <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
+                      <span>✓ {createSuccess}</span>
+                      <button type="button" onClick={() => setCreateSuccess(null)} className="text-green-500 text-lg leading-none">×</button>
+                    </div>
+                  )}
+                  {createError && (
+                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
+                      <span>⚠ {createError}</span>
+                      <button type="button" onClick={() => setCreateError(null)} className="text-red-500 text-lg leading-none">×</button>
+                    </div>
+                  )}
+                </form>
+              </div>
+            )}
+
+            {/* Invite manager / admin — admin only */}
+            {isAdmin && (
+              <div className="glass rounded-2xl p-5 border border-purple-500/15">
+                <h3 className="text-sm font-bold text-purple-300 mb-1">Invite Manager / Admin</h3>
+                <p className="text-xs text-gray-500 mb-4">Sends an email invite with a sign-up link.</p>
+                <form onSubmit={inviteUser} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="email" placeholder="Email address" value={inviteEmail}
+                      onChange={e => setInviteEmail(e.target.value)} required
+                      className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 placeholder-gray-600 w-full transition-colors"
+                    />
+                    <input
+                      type="text" placeholder="Full name (optional)" value={inviteName}
+                      onChange={e => setInviteName(e.target.value)}
+                      className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 placeholder-gray-600 w-full transition-colors"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
+                      className="bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-purple-500/60 [color-scheme:dark]"
+                    >
+                      <option value="manager">Manager</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button type="submit" disabled={inviting || !inviteEmail.trim()}
+                      className="disabled:opacity-40 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.97]"
+                      style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}
+                    >
+                      {inviting ? "Sending…" : "Send Invite"}
+                    </button>
+                  </div>
+                  {inviteSuccess && (
+                    <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
+                      <span>✓ {inviteSuccess}</span>
+                      <button type="button" onClick={() => setInviteSuccess(null)} className="text-green-500 text-lg leading-none">×</button>
+                    </div>
+                  )}
+                  {inviteError && (
+                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-3 py-2 text-sm flex items-center justify-between">
+                      <span>⚠ {inviteError}</span>
+                      <button type="button" onClick={() => setInviteError(null)} className="text-red-500 text-lg leading-none">×</button>
+                    </div>
+                  )}
+                </form>
+              </div>
+            )}
 
             {saveError && (
               <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-4 py-3 text-sm flex items-center justify-between">
@@ -794,71 +834,173 @@ export default function AdminPage() {
             )}
 
             <div className="flex items-center justify-between px-1">
-              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">{users.length} accounts</p>
-              <div className="flex gap-4 text-xs text-gray-600">
-                <span>{users.filter(u => u.role === "admin").length} admin</span>
-                <span>{users.filter(u => u.role === "manager").length} manager</span>
-                <span>{users.filter(u => u.role === "associate").length} associate</span>
-              </div>
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
+                {users.length} {isAdmin ? "accounts" : "associates"}
+              </p>
+              {isAdmin && (
+                <div className="flex gap-4 text-xs text-gray-600">
+                  <span>{users.filter(u => u.role === "admin").length} admin</span>
+                  <span>{users.filter(u => u.role === "manager").length} manager</span>
+                  <span>{users.filter(u => u.role === "associate").length} associate</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
               {users.map(u => {
                 const pendingRole = roleEdits[u.id] ?? u.role;
                 const pendingMgr  = mgEdits[u.id] !== undefined ? mgEdits[u.id] : u.manager_id;
-                const isDirty     = (roleEdits[u.id] !== undefined && roleEdits[u.id] !== u.role) || (mgEdits[u.id] !== undefined && mgEdits[u.id] !== u.manager_id);
+                const pendingWh   = whEdits[u.id] !== undefined ? whEdits[u.id]  : u.warehouse_id;
+                const isDirty     = (roleEdits[u.id] !== undefined && roleEdits[u.id] !== u.role)
+                  || (mgEdits[u.id] !== undefined && mgEdits[u.id] !== u.manager_id)
+                  || (whEdits[u.id] !== undefined && whEdits[u.id] !== u.warehouse_id);
                 const initial     = (u.full_name ?? u.email ?? "?")[0].toUpperCase();
                 const assignedMgr = managers.find(m => m.id === u.manager_id);
+                const userWh      = warehouses.find(w => w.id === u.warehouse_id);
                 return (
                   <div key={u.id} className="glass rounded-2xl p-4 hover:bg-white/[0.04] transition-colors">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-none ${ROLE_CHIP[u.role] ?? "bg-gray-700 text-gray-300"}`}>{initial}</div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm">{u.full_name ?? "(no name)"}</div>
-                        <div className="text-xs text-gray-500 truncate font-mono">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm">{u.full_name ?? "(no name)"}</span>
+                          {userWh && (
+                            <span className="text-[10px] font-mono font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                              {userWh.code}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate font-mono mt-0.5">
                           {u.username ? u.username : u.email}
                         </div>
                         {u.role === "associate" && assignedMgr && (
                           <div className="text-xs text-blue-400 mt-0.5">→ {assignedMgr.full_name ?? assignedMgr.email}</div>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap justify-end">
-                        {/* Manager assignment — only for associates */}
-                        {(pendingRole === "associate") && (
+                      {isAdmin && (
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
                           <select
-                            value={pendingMgr ?? ""}
-                            onChange={e => setMgEdits(prev => ({ ...prev, [u.id]: e.target.value || null }))}
-                            className="bg-white/5 border border-white/10 text-white rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-brand/50 transition-colors max-w-[130px] [color-scheme:dark]"
+                            value={pendingWh ?? ""}
+                            onChange={e => setWhEdits(prev => ({ ...prev, [u.id]: e.target.value || null }))}
+                            className="bg-white/5 border border-white/10 text-white rounded-lg px-2 py-1.5 text-xs [color-scheme:dark] focus:outline-none focus:border-brand/50 transition-colors max-w-[110px]"
                           >
-                            <option value="">No manager</option>
-                            {managers.filter(m => m.id !== u.id).map(m => (
-                              <option key={m.id} value={m.id}>{m.full_name ?? m.email}</option>
+                            <option value="">No WH</option>
+                            {warehouses.map(w => (
+                              <option key={w.id} value={w.id}>{w.city}</option>
                             ))}
                           </select>
-                        )}
-                        <select
-                          value={pendingRole}
-                          onChange={e => setRoleEdits(prev => ({ ...prev, [u.id]: e.target.value }))}
-                          className="bg-white/5 border border-white/10 text-white rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500/60 transition-colors [color-scheme:dark]"
-                        >
-                          <option value="associate">Associate</option>
-                          <option value="manager">Manager</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                        <button
-                          onClick={() => saveUser(u.id)}
-                          disabled={!isDirty || saving === u.id}
-                          className="disabled:opacity-25 text-white px-3 py-1.5 rounded-lg text-sm font-semibold min-w-[52px] transition-all active:scale-[0.97]"
-                          style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}
-                        >
-                          {saving === u.id ? "…" : "Save"}
-                        </button>
-                      </div>
+                          {pendingRole === "associate" && (
+                            <select
+                              value={pendingMgr ?? ""}
+                              onChange={e => setMgEdits(prev => ({ ...prev, [u.id]: e.target.value || null }))}
+                              className="bg-white/5 border border-white/10 text-white rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-brand/50 transition-colors max-w-[130px] [color-scheme:dark]"
+                            >
+                              <option value="">No manager</option>
+                              {managers.filter(m => m.id !== u.id).map(m => (
+                                <option key={m.id} value={m.id}>{m.full_name ?? m.email}</option>
+                              ))}
+                            </select>
+                          )}
+                          <select
+                            value={pendingRole}
+                            onChange={e => setRoleEdits(prev => ({ ...prev, [u.id]: e.target.value }))}
+                            className="bg-white/5 border border-white/10 text-white rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500/60 transition-colors [color-scheme:dark]"
+                          >
+                            <option value="associate">Associate</option>
+                            <option value="manager">Manager</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                          <button
+                            onClick={() => saveUser(u.id)}
+                            disabled={!isDirty || saving === u.id}
+                            className="disabled:opacity-25 text-white px-3 py-1.5 rounded-lg text-sm font-semibold min-w-[52px] transition-all active:scale-[0.97]"
+                            style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}
+                          >
+                            {saving === u.id ? "…" : "Save"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
+          </>
+        )}
+
+        {/* ════════════════ WAREHOUSES ════════════════ */}
+        {tab === "warehouses" && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {warehouses.map(w => {
+                const wMgrs      = users.filter(u => (u.role === "manager" || u.role === "admin") && u.warehouse_id === w.id);
+                const assocCount = users.filter(u => u.role === "associate" && u.warehouse_id === w.id).length;
+                const primaryMgr = wMgrs[0] ?? null;
+                const allManagers = users.filter(u => u.role === "manager" || u.role === "admin");
+                return (
+                  <div key={w.id} className="glass rounded-2xl p-5">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <div className="text-lg font-bold">{w.city}</div>
+                        <div className="text-xs text-gray-500 font-mono mt-0.5">{w.id}</div>
+                        <div className="text-xs text-gray-600 font-mono">{w.code}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-black text-emerald-400">{assocCount}</div>
+                        <div className="text-xs text-gray-500">associate{assocCount !== 1 ? "s" : ""}</div>
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Current Manager</div>
+                      {primaryMgr ? (
+                        <div className="flex items-center gap-2 bg-white/5 border border-white/8 rounded-xl px-3 py-2.5">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-none ${ROLE_CHIP["manager"]}`}>
+                            {(primaryMgr.full_name ?? primaryMgr.email ?? "?")[0].toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold truncate">{primaryMgr.full_name ?? primaryMgr.email}</div>
+                            <div className="text-xs text-gray-500 font-mono truncate">{primaryMgr.email ?? primaryMgr.username}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-600 italic py-1">No manager assigned yet</div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Assign Manager</div>
+                      <select
+                        key={primaryMgr?.id ?? `none-${w.id}`}
+                        defaultValue={primaryMgr?.id ?? ""}
+                        onChange={e => e.target.value && assignManagerToWarehouse(w.id, e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm [color-scheme:dark] focus:outline-none focus:border-brand/50"
+                      >
+                        <option value="">— Select manager —</option>
+                        {allManagers.map(u => {
+                          const curWh = warehouses.find(wh => wh.id === u.warehouse_id);
+                          const suffix = u.warehouse_id === w.id
+                            ? " (current)"
+                            : curWh ? ` → currently ${curWh.city}` : "";
+                          return (
+                            <option key={u.id} value={u.id}>
+                              {u.full_name ?? u.email ?? u.username}{suffix}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {warehouses.length === 0 && (
+              <div className="text-center py-16 text-gray-500">
+                <div className="text-4xl mb-3 opacity-30">🏭</div>
+                Run migration 008 to load warehouses.
+              </div>
+            )}
           </>
         )}
 
